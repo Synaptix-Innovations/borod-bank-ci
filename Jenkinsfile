@@ -115,30 +115,19 @@ pipeline {
                     }
                 }
 
-                stage('OWASP Dependency Check') {
-                    steps {
-                        timeout(time: 15, unit: 'MINUTES') {
-                            sh '''
-                                mvn org.owasp:dependency-check-maven:check \
-                                  -DfailBuildOnCVSS=9 \
-                                  -Dformat=HTML \
-                                  -DoutputDirectory=target/dependency-check \
-                                  -q || true
-                            '''
-                        }
-                    }
-                    post {
-                        always {
-                            archiveArtifacts artifacts: 'target/dependency-check/dependency-check-report.html',
-                                             allowEmptyArchive: true
-                        }
-                    }
-                }
-
                 stage('Trivy FS Scan') {
                     steps {
                         timeout(time: 10, unit: 'MINUTES') {
-                            sh 'trivy fs --format table -o trivy-fs-report.html --exit-code 0 .'
+                            // Fail on CRITICAL with available fix — actionable findings only
+                            sh '''
+                                trivy fs \
+                                  --format table \
+                                  --exit-code 1 \
+                                  --severity CRITICAL \
+                                  --ignore-unfixed \
+                                  -o trivy-fs-report.html \
+                                  .
+                            '''
                         }
                     }
                     post {
@@ -166,6 +155,15 @@ pipeline {
                               -Dsonar.junit.reportPaths=target/surefire-reports
                         '''
                     }
+                }
+            }
+        }
+
+        // ── Quality Gate — fail fast if SonarQube analysis didn't pass ──────
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
@@ -204,7 +202,16 @@ pipeline {
                 stage('Trivy Image Scan') {
                     steps {
                         timeout(time: 10, unit: 'MINUTES') {
-                            sh "trivy image --format table -o trivy-image-report.html --exit-code 0 ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                            // Fail on CRITICAL/HIGH with available fix
+                            sh """
+                                trivy image \
+                                  --format table \
+                                  --exit-code 1 \
+                                  --severity CRITICAL,HIGH \
+                                  --ignore-unfixed \
+                                  -o trivy-image-report.html \
+                                  ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            """
                         }
                     }
                     post {
