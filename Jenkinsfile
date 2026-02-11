@@ -268,11 +268,11 @@ pipeline {
                             sh """
                                 rm -rf borod-bank-cd
                                 git clone https://\${GIT_USER}:\${GIT_TOKEN}@github.com/Vlad774/borod-bank-cd.git
-                                cd borod-bank-cd
-                                sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${DOCKER_TAG}|" app/deployment.yml
+                                cd borod-bank-cd/app
+                                kustomize edit set image ${DOCKER_IMAGE}=${DOCKER_IMAGE}:${DOCKER_TAG}
                                 git config user.email "jenkins@borod-bank.ci"
                                 git config user.name "Jenkins CI"
-                                git add app/deployment.yml
+                                git add kustomization.yaml
                                 git commit -m "ci: update app image to ${DOCKER_TAG}"
                                 git push https://\${GIT_USER}:\${GIT_TOKEN}@github.com/Vlad774/borod-bank-cd.git main
                             """
