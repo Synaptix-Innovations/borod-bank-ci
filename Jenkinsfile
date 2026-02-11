@@ -263,18 +263,19 @@ pipeline {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     retry(3) {
-                        withCredentials([gitUsernamePassword(credentialsId: 'git-cred',
-                                                             gitToolName: 'Default')]) {
+                        withCredentials([usernamePassword(credentialsId: 'git-cred',
+                                                          usernameVariable: 'GIT_USER',
+                                                          passwordVariable: 'GIT_TOKEN')]) {
                             sh """
                                 rm -rf borod-bank-cd
-                                git clone https://github.com/Vlad774/borod-bank-cd.git
+                                git clone https://\${GIT_USER}:\${GIT_TOKEN}@github.com/Vlad774/borod-bank-cd.git
                                 cd borod-bank-cd
                                 sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${DOCKER_TAG}|" app/deployment.yml
                                 git config user.email "jenkins@borod-bank.ci"
                                 git config user.name "Jenkins CI"
                                 git add app/deployment.yml
                                 git commit -m "ci: update app image to ${DOCKER_TAG}"
-                                git push origin main
+                                git push https://\${GIT_USER}:\${GIT_TOKEN}@github.com/Vlad774/borod-bank-cd.git main
                             """
                         }
                     }
