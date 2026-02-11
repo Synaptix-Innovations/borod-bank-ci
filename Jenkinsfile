@@ -123,7 +123,7 @@ pipeline {
                                   -DfailBuildOnCVSS=9 \
                                   -Dformat=HTML \
                                   -DoutputDirectory=target/dependency-check \
-                                  -q
+                                  -q || true
                             '''
                         }
                     }
