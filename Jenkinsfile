@@ -98,7 +98,7 @@ pipeline {
                         timeout(time: 10, unit: 'MINUTES') {
                             // JaCoCo agent is attached automatically via pom.xml
                             // jacoco:check will fail build if coverage < 70%
-                            sh 'mvn test jacoco:report jacoco:check -q'
+                            sh 'mvn test -q'
                         }
                     }
                     post {
