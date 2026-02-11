@@ -28,7 +28,7 @@ pipeline {
         stage('Git Checkout') {
             steps {
                 timeout(time: 2, unit: 'MINUTES') {
-                    git branch: 'main', url: 'https://github.com/Vlad774/borod-bank-ci.git'
+                    git branch: 'main', credentialsId: 'git-cred', url: 'https://github.com/Vlad774/borod-bank-ci.git'
                 }
             }
         }
