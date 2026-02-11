@@ -3,14 +3,15 @@ services:
     image: mysql:8.0
     container_name: borod-bank-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: Test@123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: borodbankdb
     ports:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pTest@123"]
+      # MYSQL_PWD avoids password in process list / logs
+      test: ["CMD-SHELL", "MYSQL_PWD=${MYSQL_ROOT_PASSWORD} mysqladmin ping -h localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,7 +28,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/borodbankdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: Test@123
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
     depends_on:
       mysql:
         condition: service_healthy

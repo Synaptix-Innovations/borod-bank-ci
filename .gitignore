@@ -32,6 +32,9 @@ build/
 ### VS Code ###
 .vscode/
 
-### Environment ###
+### Environment & Secrets ###
 .env
 *.env.local
+*.env.prod
+# Keep .env.example (template without real values)
+!.env.example
