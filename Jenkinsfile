@@ -1,15 +1,162 @@
 pipeline {
-    agent any
 
-    tools {
-        maven 'maven3'
+    // ── Every build gets a fresh, isolated pod — no shared Docker daemon ──
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: borod-bank-build
+spec:
+  serviceAccountName: jenkins
+  # Pod-level security: no privilege escalation allowed for any container
+  securityContext:
+    fsGroup: 1000
+  containers:
+
+    # Jenkins inbound agent — handles SCM checkout and pipeline orchestration
+    - name: jnlp
+      image: jenkins/inbound-agent:3261.v9c670a_4748a_9-1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+    # Maven — compile, test, package, SonarQube analysis
+    - name: maven
+      image: maven:3.9.6-eclipse-temurin-17
+      command: [sleep, infinity]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 2000m
+          memory: 3Gi
+      volumeMounts:
+        # Per-build Maven cache — prevents cross-build state
+        - name: m2-cache
+          mountPath: /root/.m2
+
+    # Kaniko — builds and pushes Docker image without a Docker daemon
+    # Runs as root (needed for layer emulation) but NOT privileged
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:v1.23.2-debug
+      command: [/busybox/cat]
+      tty: true
+      securityContext:
+        runAsUser: 0
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+
+    # Trivy — filesystem scan (SCA) + image scan after push
+    - name: trivy
+      image: aquasec/trivy:0.58.0
+      command: [sleep, infinity]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+
+    # Gitleaks — secret detection in source code
+    - name: gitleaks
+      image: zricethezav/gitleaks:v8.21.2
+      command: [sleep, infinity]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+
+    # Hadolint — Dockerfile linting
+    - name: hadolint
+      image: hadolint/hadolint:v2.12.0
+      command: [sleep, infinity]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+    # Checkov — IaC static analysis (Dockerfile)
+    - name: checkov
+      image: bridgecrew/checkov:3.2.0
+      command: [sleep, infinity]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+
+    # Tools — git + kustomize for updating borod-bank-cd manifests
+    - name: tools
+      image: alpine/k8s:1.30.2
+      command: [sleep, infinity]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+
+  volumes:
+    - name: m2-cache
+      emptyDir: {}
+"""
+            defaultContainer 'maven'
+        }
     }
 
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
-        DOCKER_IMAGE = "vlad7774/borod-bank"
+        SCANNER_HOME    = tool 'sonar-scanner'
+        DOCKER_IMAGE    = "vlad7774/borod-bank"
         // Tag includes build number + short git SHA for full traceability
-        DOCKER_TAG   = "v${BUILD_NUMBER}-${GIT_COMMIT[0..7]}"
+        DOCKER_TAG      = "v${BUILD_NUMBER}-${GIT_COMMIT[0..7]}"
     }
 
     options {
@@ -33,23 +180,23 @@ pipeline {
             }
         }
 
-        // ── PARALLEL: Security & Lint — run together to save time ──────
+        // ── PARALLEL: Security & Lint — run together to save time ──────────
         stage('Security & Lint') {
             parallel {
 
                 stage('Gitleaks') {
                     steps {
                         timeout(time: 5, unit: 'MINUTES') {
-                            sh '''
-                                docker run --rm \
-                                  -v $(pwd):/path \
-                                  zricethezav/gitleaks:latest detect \
-                                  --source /path \
-                                  --report-format json \
-                                  --report-path /path/gitleaks-report.json \
-                                  --exit-code 1 \
-                                  || (echo "Gitleaks found secrets!" && exit 1)
-                            '''
+                            container('gitleaks') {
+                                sh '''
+                                    gitleaks detect \
+                                      --source . \
+                                      --report-format json \
+                                      --report-path gitleaks-report.json \
+                                      --exit-code 1 \
+                                      || (echo "Gitleaks found secrets!" && exit 1)
+                                '''
+                            }
                         }
                     }
                     post {
@@ -63,11 +210,9 @@ pipeline {
                 stage('Hadolint') {
                     steps {
                         timeout(time: 3, unit: 'MINUTES') {
-                            sh '''
-                                docker run --rm \
-                                  -i hadolint/hadolint:latest < Dockerfile \
-                                  | tee hadolint-report.txt
-                            '''
+                            container('hadolint') {
+                                sh 'hadolint Dockerfile | tee hadolint-report.txt'
+                            }
                         }
                     }
                     post {
@@ -89,7 +234,7 @@ pipeline {
             }
         }
 
-        // ── PARALLEL: Tests & SAST — all independent, run together ─────
+        // ── PARALLEL: Tests & SAST — all independent, run together ─────────
         stage('Tests & SAST') {
             parallel {
 
@@ -118,16 +263,18 @@ pipeline {
                 stage('Trivy FS Scan') {
                     steps {
                         timeout(time: 10, unit: 'MINUTES') {
-                            // Fail on CRITICAL with available fix — actionable findings only
-                            sh '''
-                                trivy fs \
-                                  --format table \
-                                  --exit-code 1 \
-                                  --severity CRITICAL \
-                                  --ignore-unfixed \
-                                  -o trivy-fs-report.html \
-                                  .
-                            '''
+                            container('trivy') {
+                                // Fail on CRITICAL with available fix — actionable findings only
+                                sh '''
+                                    trivy fs \
+                                      --format table \
+                                      --exit-code 1 \
+                                      --severity CRITICAL \
+                                      --ignore-unfixed \
+                                      -o trivy-fs-report.html \
+                                      .
+                                '''
+                            }
                         }
                     }
                     post {
@@ -141,7 +288,7 @@ pipeline {
             }
         }
 
-        // ── SonarQube gets coverage data from JaCoCo XML report ─────────
+        // ── SonarQube gets coverage data from JaCoCo XML report ─────────────
         stage('SonarQube Analysis') {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
@@ -176,42 +323,58 @@ pipeline {
             }
         }
 
-        stage('Docker Build & Tag') {
+        // ── Kaniko: build + push — no Docker daemon, no privileged mode ─────
+        stage('Docker Build & Push') {
             steps {
-                timeout(time: 10, unit: 'MINUTES') {
-                    script {
-                        withDockerRegistry(credentialsId: 'docker-cred') {
-                            // --cache-from speeds up repeated builds
-                            sh """
-                                docker build \
-                                  --cache-from ${DOCKER_IMAGE}:latest \
-                                  -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                                  -t ${DOCKER_IMAGE}:latest \
-                                  .
-                            """
+                timeout(time: 15, unit: 'MINUTES') {
+                    container('kaniko') {
+                        withCredentials([usernamePassword(
+                            credentialsId: 'docker-cred',
+                            usernameVariable: 'DOCKER_USER',
+                            passwordVariable: 'DOCKER_PASS'
+                        )]) {
+                            sh '''
+                                AUTH=$(printf '%s:%s' "$DOCKER_USER" "$DOCKER_PASS" | base64 | tr -d '\\n')
+                                mkdir -p /kaniko/.docker
+                                printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' "$AUTH" \
+                                  > /kaniko/.docker/config.json
+
+                                /kaniko/executor \
+                                  --context=dir://${WORKSPACE} \
+                                  --dockerfile=${WORKSPACE}/Dockerfile \
+                                  --destination=${DOCKER_IMAGE}:${DOCKER_TAG} \
+                                  --destination=${DOCKER_IMAGE}:latest \
+                                  --cache=true \
+                                  --cache-repo=${DOCKER_IMAGE}-cache \
+                                  --compressed-caching=false \
+                                  --snapshot-mode=redo
+                            '''
                         }
                     }
                 }
             }
         }
 
-        // ── PARALLEL: Image checks ───────────────────────────────────────
+        // ── PARALLEL: Post-push image checks ────────────────────────────────
         stage('Image Checks') {
             parallel {
 
                 stage('Trivy Image Scan') {
                     steps {
                         timeout(time: 10, unit: 'MINUTES') {
-                            // Fail on CRITICAL/HIGH with available fix
-                            sh """
-                                trivy image \
-                                  --format table \
-                                  --exit-code 1 \
-                                  --severity CRITICAL,HIGH \
-                                  --ignore-unfixed \
-                                  -o trivy-image-report.html \
-                                  ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            """
+                            container('trivy') {
+                                // Fail on CRITICAL/HIGH with available fix
+                                // Scans image directly from registry — no Docker daemon needed
+                                sh """
+                                    trivy image \
+                                      --format table \
+                                      --exit-code 1 \
+                                      --severity CRITICAL,HIGH \
+                                      --ignore-unfixed \
+                                      -o trivy-image-report.html \
+                                      ${DOCKER_IMAGE}:${DOCKER_TAG}
+                                """
+                            }
                         }
                     }
                     post {
@@ -225,57 +388,45 @@ pipeline {
                 stage('Checkov IaC Scan') {
                     steps {
                         timeout(time: 5, unit: 'MINUTES') {
-                            sh '''
-                                docker run --rm \
-                                  -v $(pwd):/tf \
-                                  bridgecrew/checkov:latest \
-                                  --directory /tf \
-                                  --framework dockerfile \
-                                  --output cli \
-                                  --soft-fail
-                            '''
-                        }
-                    }
-                }
-
-            }
-        }
-
-        // ── Retry push up to 3 times on network errors ──────────────────
-        stage('Docker Push') {
-            steps {
-                timeout(time: 10, unit: 'MINUTES') {
-                    retry(3) {
-                        script {
-                            withDockerRegistry(credentialsId: 'docker-cred') {
-                                sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                                sh "docker push ${DOCKER_IMAGE}:latest"
+                            container('checkov') {
+                                sh '''
+                                    checkov \
+                                      --directory . \
+                                      --framework dockerfile \
+                                      --output cli \
+                                      --soft-fail
+                                '''
                             }
                         }
                     }
                 }
+
             }
         }
 
-        // ── Retry git push up to 3 times (race conditions on main) ──────
+        // ── Update CD repo — ArgoCD will auto-sync the new image ────────────
         stage('Update K8s Manifests') {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     retry(3) {
-                        withCredentials([usernamePassword(credentialsId: 'git-cred',
-                                                          usernameVariable: 'GIT_USER',
-                                                          passwordVariable: 'GIT_TOKEN')]) {
-                            sh """
-                                rm -rf borod-bank-cd
-                                git clone https://\${GIT_USER}:\${GIT_TOKEN}@github.com/Vlad774/borod-bank-cd.git
-                                cd borod-bank-cd/app
-                                kustomize edit set image ${DOCKER_IMAGE}=${DOCKER_IMAGE}:${DOCKER_TAG}
-                                git config user.email "jenkins@borod-bank.ci"
-                                git config user.name "Jenkins CI"
-                                git add kustomization.yaml
-                                git commit -m "ci: update app image to ${DOCKER_TAG}"
-                                git push https://\${GIT_USER}:\${GIT_TOKEN}@github.com/Vlad774/borod-bank-cd.git main
-                            """
+                        container('tools') {
+                            withCredentials([usernamePassword(
+                                credentialsId: 'git-cred',
+                                usernameVariable: 'GIT_USER',
+                                passwordVariable: 'GIT_TOKEN'
+                            )]) {
+                                sh """
+                                    rm -rf borod-bank-cd
+                                    git clone https://\${GIT_USER}:\${GIT_TOKEN}@github.com/Vlad774/borod-bank-cd.git
+                                    cd borod-bank-cd/app
+                                    kustomize edit set image ${DOCKER_IMAGE}=${DOCKER_IMAGE}:${DOCKER_TAG}
+                                    git config user.email "jenkins@borod-bank.ci"
+                                    git config user.name "Jenkins CI"
+                                    git add kustomization.yaml
+                                    git commit -m "ci: update app image to ${DOCKER_TAG}"
+                                    git push https://\${GIT_USER}:\${GIT_TOKEN}@github.com/Vlad774/borod-bank-cd.git main
+                                """
+                            }
                         }
                     }
                 }
