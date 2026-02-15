@@ -144,9 +144,49 @@ spec:
           cpu: 200m
           memory: 256Mi
 
+    # Syft — generates SBOM in CycloneDX format from container image
+    - name: syft
+      image: anchore/syft:1.18.0
+      command: [sleep, infinity]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+    # Cosign — signs image and attests SBOM; key mounted from AWS SM via ESO
+    - name: cosign
+      image: gcr.io/projectsigstore/cosign:v2.4.0
+      command: [sleep, infinity]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+      volumeMounts:
+        - name: cosign-secret
+          mountPath: /cosign
+          readOnly: true
+
   volumes:
     - name: m2-cache
       emptyDir: {}
+    # cosign-signing-key is managed by ESO — sourced from AWS SM borod-bank/cosign
+    - name: cosign-secret
+      secret:
+        secretName: cosign-signing-key
 """
             defaultContainer 'maven'
         }
@@ -401,6 +441,73 @@ spec:
                     }
                 }
 
+                stage('Generate SBOM') {
+                    steps {
+                        timeout(time: 10, unit: 'MINUTES') {
+                            container('syft') {
+                                withCredentials([usernamePassword(
+                                    credentialsId: 'docker-cred',
+                                    usernameVariable: 'DOCKER_USER',
+                                    passwordVariable: 'DOCKER_PASS'
+                                )]) {
+                                    sh """
+                                        syft ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                                          -o cyclonedx-json \
+                                          --file sbom-cyclonedx.json
+                                    """
+                                }
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            archiveArtifacts artifacts: 'sbom-cyclonedx.json',
+                                             allowEmptyArchive: true
+                        }
+                    }
+                }
+
+            }
+        }
+
+        // ── Sign image + attest SBOM — supply chain integrity ───────────────
+        stage('Sign & Attest Image') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    container('cosign') {
+                        withCredentials([
+                            usernamePassword(
+                                credentialsId: 'docker-cred',
+                                usernameVariable: 'DOCKER_USER',
+                                passwordVariable: 'DOCKER_PASS'
+                            )
+                        ]) {
+                            sh """
+                                # Registry auth for cosign push
+                                export DOCKER_CONFIG=\$(mktemp -d)
+                                AUTH=\$(printf '%s:%s' "\$DOCKER_USER" "\$DOCKER_PASS" | base64 | tr -d '\\n')
+                                printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' "\$AUTH" \
+                                  > \${DOCKER_CONFIG}/config.json
+
+                                export COSIGN_PASSWORD=\$(cat /cosign/cosign.password)
+
+                                # Sign the image — signature pushed to Docker Hub
+                                cosign sign \
+                                  --key /cosign/cosign.key \
+                                  --yes \
+                                  ${DOCKER_IMAGE}:${DOCKER_TAG}
+
+                                # Attest with SBOM — predicate attached to image
+                                cosign attest \
+                                  --key /cosign/cosign.key \
+                                  --predicate sbom-cyclonedx.json \
+                                  --type cyclonedx \
+                                  --yes \
+                                  ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            """
+                        }
+                    }
+                }
             }
         }
 
