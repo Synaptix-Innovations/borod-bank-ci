@@ -547,13 +547,49 @@ spec:
             deleteDir()
         }
         success {
-            echo "Pipeline PASSED — ${DOCKER_IMAGE}:${DOCKER_TAG} is live"
+            script {
+                container('tools') {
+                    withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
+                        sh """
+                            printf '{"text":"✅ *borod-bank* build #${BUILD_NUMBER} passed\\n• Image: `${DOCKER_IMAGE}:${DOCKER_TAG}`\\n• <%s|View build>" "${BUILD_URL}" \\
+                              > /tmp/slack.json
+                            curl -s -X POST "\$SLACK_HOOK_URL" \
+                              -H 'Content-Type: application/json' \
+                              -d @/tmp/slack.json
+                        """
+                    }
+                }
+            }
         }
         failure {
-            echo "Pipeline FAILED — check reports in Jenkins artifacts"
+            script {
+                container('tools') {
+                    withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
+                        sh """
+                            printf '{"text":"❌ *borod-bank* build #${BUILD_NUMBER} FAILED\\n• <%s|View logs>" "${BUILD_URL}" \\
+                              > /tmp/slack.json
+                            curl -s -X POST "\$SLACK_HOOK_URL" \
+                              -H 'Content-Type: application/json' \
+                              -d @/tmp/slack.json
+                        """
+                    }
+                }
+            }
         }
         unstable {
-            echo "Pipeline UNSTABLE — some tests may have failed"
+            script {
+                container('tools') {
+                    withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
+                        sh """
+                            printf '{"text":"⚠️ *borod-bank* build #${BUILD_NUMBER} unstable — tests may have failed\\n• <%s|View build>" "${BUILD_URL}" \\
+                              > /tmp/slack.json
+                            curl -s -X POST "\$SLACK_HOOK_URL" \
+                              -H 'Content-Type: application/json' \
+                              -d @/tmp/slack.json
+                        """
+                    }
+                }
+            }
         }
     }
 }
