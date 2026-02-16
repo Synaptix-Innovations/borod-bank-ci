@@ -98,7 +98,7 @@ spec:
 
     # Hadolint — Dockerfile linting
     - name: hadolint
-      image: hadolint/hadolint:v2.12.0
+      image: hadolint/hadolint:v2.12.0-alpine
       command: [sleep, infinity]
       securityContext:
         runAsNonRoot: true
@@ -146,7 +146,7 @@ spec:
 
     # Syft — generates SBOM in CycloneDX format from container image
     - name: syft
-      image: anchore/syft:1.18.0
+      image: anchore/syft:v1.18.0
       command: [sleep, infinity]
       securityContext:
         runAsNonRoot: true
@@ -162,7 +162,7 @@ spec:
 
     # Cosign — signs image and attests SBOM; key mounted from AWS SM via ESO
     - name: cosign
-      image: gcr.io/projectsigstore/cosign:v2.4.0
+      image: gcr.io/projectsigstore/cosign:v2.4.0-debug
       command: [sleep, infinity]
       securityContext:
         runAsNonRoot: true
