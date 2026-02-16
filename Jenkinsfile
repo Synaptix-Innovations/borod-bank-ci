@@ -128,10 +128,19 @@ spec:
           cpu: 500m
           memory: 1Gi
 
-    # Tools — git + kustomize for updating borod-bank-cd manifests
+    # Tools — git + kustomize + syft + cosign
+    # Installs syft and cosign binaries at pod startup — avoids distroless image issues
     - name: tools
       image: alpine/k8s:1.30.2
-      command: [sleep, infinity]
+      command:
+        - /bin/sh
+        - -c
+        - |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin v1.18.0
+          curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.4.0/cosign-linux-amd64 \
+            -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+          sleep infinity
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -143,38 +152,6 @@ spec:
         limits:
           cpu: 200m
           memory: 256Mi
-
-    # Syft — generates SBOM in CycloneDX format from container image
-    - name: syft
-      image: anchore/syft:v1.18.0
-      command: [sleep, infinity]
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        allowPrivilegeEscalation: false
-      resources:
-        requests:
-          cpu: 50m
-          memory: 128Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
-
-    # Cosign — signs image and attests SBOM; key mounted from AWS SM via ESO
-    - name: cosign
-      image: gcr.io/projectsigstore/cosign:v2.4.0-debug
-      command: [sleep, infinity]
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        allowPrivilegeEscalation: false
-      resources:
-        requests:
-          cpu: 50m
-          memory: 64Mi
-        limits:
-          cpu: 200m
-          memory: 128Mi
       volumeMounts:
         - name: cosign-secret
           mountPath: /cosign
@@ -444,7 +421,7 @@ spec:
                 stage('Generate SBOM') {
                     steps {
                         timeout(time: 10, unit: 'MINUTES') {
-                            container('syft') {
+                            container('tools') {
                                 withCredentials([usernamePassword(
                                     credentialsId: 'docker-cred',
                                     usernameVariable: 'DOCKER_USER',
@@ -474,7 +451,7 @@ spec:
         stage('Sign & Attest Image') {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
-                    container('cosign') {
+                    container('tools') {
                         withCredentials([
                             usernamePassword(
                                 credentialsId: 'docker-cred',
