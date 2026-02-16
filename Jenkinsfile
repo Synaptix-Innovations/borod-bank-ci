@@ -431,6 +431,9 @@ spec:
                                     passwordVariable: 'DOCKER_PASS'
                                 )]) {
                                     sh """
+                                        # Ensure syft is available (container startup may still be installing it)
+                                        command -v syft || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+                                          | sh -s -- -b /usr/local/bin v1.18.0
                                         syft ${DOCKER_IMAGE}:${DOCKER_TAG} \
                                           -o cyclonedx-json \
                                           --file sbom-cyclonedx.json
@@ -463,6 +466,10 @@ spec:
                             )
                         ]) {
                             sh """
+                                # Ensure cosign is available (container startup may still be installing it)
+                                command -v cosign || curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.4.0/cosign-linux-amd64 \
+                                  -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+
                                 # Registry auth for cosign push
                                 export DOCKER_CONFIG=\$(mktemp -d)
                                 AUTH=\$(printf '%s:%s' "\$DOCKER_USER" "\$DOCKER_PASS" | base64 | tr -d '\\n')
