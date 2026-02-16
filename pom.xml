@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.3.11</version>
+		<version>3.4.5</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.vlad774</groupId>
@@ -30,11 +30,7 @@
 	</scm>
 	<properties>
 		<java.version>17</java.version>
-		<!-- Override managed versions to fix HIGH CVEs not yet in Spring Boot 3.3.11 -->
-		<!-- CVE-2025-48988, CVE-2025-48989, CVE-2025-55752: Tomcat DoS + path traversal -->
-		<tomcat.version>10.1.45</tomcat.version>
-		<!-- CVE-2025-22228: BCryptPasswordEncoder max length bypass -->
-		<spring-security.version>6.3.8</spring-security.version>
+		<!-- CVE-2025-41249: spring-core annotation detection — fixed in Spring Framework 6.2.11 (Spring Boot 3.4.x) -->
 	</properties>
 	<dependencies>
 		<dependency>
