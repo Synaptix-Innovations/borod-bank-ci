@@ -284,6 +284,7 @@ spec:
                                 // Fail on CRITICAL with available fix — actionable findings only
                                 sh '''
                                     trivy fs \
+                                      --cache-dir /tmp/trivy-cache \
                                       --format table \
                                       --exit-code 1 \
                                       --severity CRITICAL \
@@ -384,6 +385,7 @@ spec:
                                 // Scans image directly from registry — no Docker daemon needed
                                 sh """
                                     trivy image \
+                                      --cache-dir /tmp/trivy-cache \
                                       --format table \
                                       --exit-code 1 \
                                       --severity CRITICAL,HIGH \
@@ -528,7 +530,7 @@ spec:
                 container('tools') {
                     withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
                         sh """
-                            printf '{"text":"✅ *borod-bank* build #${BUILD_NUMBER} passed\\n• Image: `${DOCKER_IMAGE}:${DOCKER_TAG}`\\n• <%s|View build>" "${BUILD_URL}" \\
+                            printf '{"text":"✅ *borod-bank* build #${BUILD_NUMBER} passed\\n• Image: `${DOCKER_IMAGE}:${DOCKER_TAG}`\\n• <%s|View build>" "${env.BUILD_URL}" \\
                               > /tmp/slack.json
                             curl -s -X POST "\$SLACK_HOOK_URL" \
                               -H 'Content-Type: application/json' \
@@ -543,7 +545,7 @@ spec:
                 container('tools') {
                     withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
                         sh """
-                            printf '{"text":"❌ *borod-bank* build #${BUILD_NUMBER} FAILED\\n• <%s|View logs>" "${BUILD_URL}" \\
+                            printf '{"text":"❌ *borod-bank* build #${BUILD_NUMBER} FAILED\\n• <%s|View logs>" "${env.BUILD_URL}" \\
                               > /tmp/slack.json
                             curl -s -X POST "\$SLACK_HOOK_URL" \
                               -H 'Content-Type: application/json' \
@@ -558,7 +560,7 @@ spec:
                 container('tools') {
                     withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
                         sh """
-                            printf '{"text":"⚠️ *borod-bank* build #${BUILD_NUMBER} unstable — tests may have failed\\n• <%s|View build>" "${BUILD_URL}" \\
+                            printf '{"text":"⚠️ *borod-bank* build #${BUILD_NUMBER} unstable — tests may have failed\\n• <%s|View build>" "${env.BUILD_URL}" \\
                               > /tmp/slack.json
                             curl -s -X POST "\$SLACK_HOOK_URL" \
                               -H 'Content-Type: application/json' \
