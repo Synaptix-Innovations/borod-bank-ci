@@ -136,10 +136,11 @@ spec:
         - /bin/sh
         - -c
         - |
+          mkdir -p /tmp/bin
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-            | sh -s -- -b /usr/local/bin v1.18.0
+            | sh -s -- -b /tmp/bin v1.18.0
           curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.4.0/cosign-linux-amd64 \
-            -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+            -o /tmp/bin/cosign && chmod +x /tmp/bin/cosign
           sleep infinity
       securityContext:
         runAsNonRoot: true
@@ -431,10 +432,10 @@ spec:
                                     passwordVariable: 'DOCKER_PASS'
                                 )]) {
                                     sh """
-                                        # Ensure syft is available (container startup may still be installing it)
-                                        command -v syft || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-                                          | sh -s -- -b /usr/local/bin v1.18.0
-                                        syft ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                                        mkdir -p /tmp/bin
+                                        [ -x /tmp/bin/syft ] || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+                                          | sh -s -- -b /tmp/bin v1.18.0
+                                        /tmp/bin/syft ${DOCKER_IMAGE}:${DOCKER_TAG} \
                                           -o cyclonedx-json \
                                           --file sbom-cyclonedx.json
                                     """
@@ -466,9 +467,9 @@ spec:
                             )
                         ]) {
                             sh """
-                                # Ensure cosign is available (container startup may still be installing it)
-                                command -v cosign || curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.4.0/cosign-linux-amd64 \
-                                  -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+                                mkdir -p /tmp/bin
+                                [ -x /tmp/bin/cosign ] || { curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.4.0/cosign-linux-amd64 \
+                                  -o /tmp/bin/cosign && chmod +x /tmp/bin/cosign; }
 
                                 # Registry auth for cosign push
                                 export DOCKER_CONFIG=\$(mktemp -d)
@@ -479,13 +480,13 @@ spec:
                                 export COSIGN_PASSWORD=\$(cat /cosign/cosign.password)
 
                                 # Sign the image — signature pushed to Docker Hub
-                                cosign sign \
+                                /tmp/bin/cosign sign \
                                   --key /cosign/cosign.key \
                                   --yes \
                                   ${DOCKER_IMAGE}:${DOCKER_TAG}
 
                                 # Attest with SBOM — predicate attached to image
-                                cosign attest \
+                                /tmp/bin/cosign attest \
                                   --key /cosign/cosign.key \
                                   --predicate sbom-cyclonedx.json \
                                   --type cyclonedx \
@@ -538,11 +539,9 @@ spec:
                 container('tools') {
                     withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
                         sh """
-                            printf '{"text":"✅ *borod-bank* build #${BUILD_NUMBER} passed\\n• Image: `${DOCKER_IMAGE}:${DOCKER_TAG}`\\n• <%s|View build>" "${env.BUILD_URL}" \\
-                              > /tmp/slack.json
-                            curl -s -X POST "\$SLACK_HOOK_URL" \
-                              -H 'Content-Type: application/json' \
-                              -d @/tmp/slack.json
+                            curl -s -X POST "\$SLACK_HOOK_URL" \\
+                              -H "Content-Type: application/json" \\
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} SUCCESS - ${DOCKER_IMAGE}:${DOCKER_TAG} - ${env.BUILD_URL}"}'
                         """
                     }
                 }
@@ -553,11 +552,9 @@ spec:
                 container('tools') {
                     withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
                         sh """
-                            printf '{"text":"❌ *borod-bank* build #${BUILD_NUMBER} FAILED\\n• <%s|View logs>" "${env.BUILD_URL}" \\
-                              > /tmp/slack.json
-                            curl -s -X POST "\$SLACK_HOOK_URL" \
-                              -H 'Content-Type: application/json' \
-                              -d @/tmp/slack.json
+                            curl -s -X POST "\$SLACK_HOOK_URL" \\
+                              -H "Content-Type: application/json" \\
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} FAILED - ${env.BUILD_URL}"}'
                         """
                     }
                 }
@@ -568,11 +565,9 @@ spec:
                 container('tools') {
                     withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
                         sh """
-                            printf '{"text":"⚠️ *borod-bank* build #${BUILD_NUMBER} unstable — tests may have failed\\n• <%s|View build>" "${env.BUILD_URL}" \\
-                              > /tmp/slack.json
-                            curl -s -X POST "\$SLACK_HOOK_URL" \
-                              -H 'Content-Type: application/json' \
-                              -d @/tmp/slack.json
+                            curl -s -X POST "\$SLACK_HOOK_URL" \\
+                              -H "Content-Type: application/json" \\
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} UNSTABLE - ${env.BUILD_URL}"}'
                         """
                     }
                 }
