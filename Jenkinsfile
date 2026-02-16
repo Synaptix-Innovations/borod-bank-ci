@@ -541,7 +541,7 @@ spec:
                         sh """
                             curl -s -X POST "\$SLACK_HOOK_URL" \\
                               -H "Content-Type: application/json" \\
-                              -d '{"text":"borod-bank build #${BUILD_NUMBER} SUCCESS - ${DOCKER_IMAGE}:${DOCKER_TAG} - ${env.BUILD_URL}"}'
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} SUCCESS - ${DOCKER_IMAGE}:${DOCKER_TAG} - ${env.BUILD_URL}"}' || true
                         """
                     }
                 }
@@ -554,7 +554,7 @@ spec:
                         sh """
                             curl -s -X POST "\$SLACK_HOOK_URL" \\
                               -H "Content-Type: application/json" \\
-                              -d '{"text":"borod-bank build #${BUILD_NUMBER} FAILED - ${env.BUILD_URL}"}'
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} FAILED - ${env.BUILD_URL}"}' || true
                         """
                     }
                 }
@@ -567,7 +567,7 @@ spec:
                         sh """
                             curl -s -X POST "\$SLACK_HOOK_URL" \\
                               -H "Content-Type: application/json" \\
-                              -d '{"text":"borod-bank build #${BUILD_NUMBER} UNSTABLE - ${env.BUILD_URL}"}'
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} UNSTABLE - ${env.BUILD_URL}"}' || true
                         """
                     }
                 }
