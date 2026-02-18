@@ -131,6 +131,10 @@
 </nav>
 
 <div class="container dashboard-container">
+    <div th:if="${featureFlags.maintenanceMode}" class="alert alert-warning text-center mt-3" role="alert">
+        <strong>Scheduled Maintenance:</strong> Some features may be temporarily unavailable.
+    </div>
+
     <div class="text-center">
         <h2 th:text="'Welcome, ' + ${account.username}"></h2>
         <h3 th:text="'Current Balance: $' + ${account.balance}"></h3>
@@ -173,7 +177,7 @@
             </div>
         </div>
 
-        <div class="col-md-3">
+        <div class="col-md-3" th:if="${featureFlags.transferEnabled}">
             <button class="btn btn-block btn-primary" type="button" data-toggle="collapse" data-target="#transferForm" aria-expanded="false" aria-controls="transferForm">
                 Transfer Money
             </button>

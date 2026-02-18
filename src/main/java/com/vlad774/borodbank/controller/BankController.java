@@ -2,6 +2,7 @@ package com.vlad774.borodbank.controller;
 
 import com.vlad774.borodbank.model.Account;
 import com.vlad774.borodbank.service.AccountService;
+import com.vlad774.borodbank.service.FeatureFlagService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
@@ -18,11 +19,15 @@ public class BankController {
     @Autowired
     private AccountService accountService;
 
+    @Autowired
+    private FeatureFlagService featureFlagService;
+
     @GetMapping("/dashboard")
     public String dashboard(Model model) {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         Account account = accountService.findAccountByUsername(username);
         model.addAttribute("account", account);
+        model.addAttribute("featureFlags", featureFlagService);
         return "dashboard";
     }
 
@@ -84,11 +89,19 @@ public class BankController {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         Account fromAccount = accountService.findAccountByUsername(username);
 
+        if (!featureFlagService.isTransferEnabled()) {
+            model.addAttribute("error", "Transfers are currently unavailable.");
+            model.addAttribute("account", fromAccount);
+            model.addAttribute("featureFlags", featureFlagService);
+            return "dashboard";
+        }
+
         try {
             accountService.transferAmount(fromAccount, toUsername, amount);
         } catch (RuntimeException e) {
             model.addAttribute("error", e.getMessage());
             model.addAttribute("account", fromAccount);
+            model.addAttribute("featureFlags", featureFlagService);
             return "dashboard";
         }
 
