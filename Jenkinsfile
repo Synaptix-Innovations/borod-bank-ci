@@ -128,6 +128,23 @@ spec:
           cpu: 500m
           memory: 1Gi
 
+    # MySQL sidecar for integration tests — shares pod network (localhost:3306)
+    # Ephemeral per build — no state leakage between builds
+    - name: mysql-it
+      image: mysql:8.0
+      env:
+        - name: MYSQL_DATABASE
+          value: testdb
+        - name: MYSQL_ROOT_PASSWORD
+          value: testpassword
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
     # Tools — git + kustomize + syft + cosign
     # Installs syft and cosign binaries at pod startup — avoids distroless image issues
     - name: tools
@@ -264,6 +281,35 @@ spec:
                         always {
                             archiveArtifacts artifacts: 'trivy-fs-report.html',
                                              allowEmptyArchive: true
+                        }
+                    }
+                }
+
+                // ── Integration Tests — real MySQL via sidecar (localhost:3306) ──
+                // Excluded from mvn test via surefire config — runs only here
+                stage('Integration Tests') {
+                    steps {
+                        timeout(time: 10, unit: 'MINUTES') {
+                            sh '''
+                                echo "Waiting for MySQL sidecar to be ready..."
+                                for i in $(seq 1 30); do
+                                    (echo > /dev/tcp/localhost/3306) 2>/dev/null && echo "MySQL ready" && break
+                                    echo "Attempt $i/30 — waiting 2s..."
+                                    sleep 2
+                                done
+                                mvn test \
+                                  -Dtest="*IT" \
+                                  -Dspring.profiles.active=it \
+                                  -DfailIfNoTests=false \
+                                  -Djacoco.skip=true \
+                                  -q
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: '**/target/surefire-reports/TEST-*IT.xml'
                         }
                     }
                 }
