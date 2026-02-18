@@ -329,7 +329,7 @@ spec:
         // ── Quality Gate — fail fast if SonarQube analysis didn't pass ──────
         stage('Quality Gate') {
             steps {
-                timeout(time: 15, unit: 'MINUTES') {
+                timeout(time: 3, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
