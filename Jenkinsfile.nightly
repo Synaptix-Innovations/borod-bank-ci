@@ -1,0 +1,273 @@
+#!/usr/bin/env groovy
+
+/*
+ * Borod Bank — Nightly Regression Pipeline
+ * 
+ * Purpose: Heavy tests that don't block main pipeline
+ * Schedule: Daily at 2:00 AM (cron: H 2 * * *)
+ * 
+ * Stages:
+ * 1. E2E Tests (Playwright) — TODO: Future
+ * 2. Load Tests (k6) — TODO: Future
+ * 3. DAST Scan (OWASP ZAP)
+ * 4. OWASP Dependency Check
+ * 5. Report & Notify
+ */
+
+pipeline {
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    jenkins: agent
+spec:
+  serviceAccountName: jenkins
+  containers:
+  - name: maven
+    image: maven:3.9-eclipse-temurin-17
+    command:
+      - cat
+    tty: true
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+    volumeMounts:
+    - name: maven-cache
+      mountPath: /root/.m2
+  - name: zap
+    image: ghcr.io/zaproxy/zaproxy:stable
+    command:
+      - cat
+    tty: true
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+  volumes:
+  - name: maven-cache
+    persistentVolumeClaim:
+      claimName: jenkins-maven-cache
+"""
+        }
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timeout(time: 2, unit: 'HOURS')
+        timestamps()
+        ansiColor('xterm')
+    }
+    
+    environment {
+        APP_URL = 'https://app.vladinnovations.info'
+        ZAP_PORT = '8090'
+        SLACK_CHANNEL = '#nightly-reports'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                    env.BUILD_TIME = sh(
+                        script: "date '+%Y-%m-%d %H:%M:%S'",
+                        returnStdout: true
+                    ).trim()
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                script {
+                    echo "🏥 Checking application health..."
+                    
+                    def healthCheck = sh(
+                        script: "curl -f -s -o /dev/null -w '%{http_code}' ${APP_URL}/actuator/health || echo 'FAILED'",
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (healthCheck != '200') {
+                        error("❌ Application is not healthy (status: ${healthCheck}). Aborting nightly tests.")
+                    }
+                    
+                    echo "✅ Application is healthy"
+                }
+            }
+        }
+        
+        stage('OWASP Dependency Check') {
+            steps {
+                container('maven') {
+                    script {
+                        echo "🔍 Running OWASP Dependency Check..."
+                        
+                        sh """
+                            mvn org.owasp:dependency-check-maven:check \
+                              -DfailBuildOnCVSS=7 \
+                              -DsuppressionFile=dependency-check-suppressions.xml \
+                              -Dformats=HTML,JSON,XML
+                        """
+                    }
+                }
+            }
+            post {
+                always {
+                    // Publish Dependency Check report
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'target',
+                        reportFiles: 'dependency-check-report.html',
+                        reportName: 'OWASP Dependency Check Report'
+                    ])
+                }
+            }
+        }
+        
+        stage('DAST Scan (OWASP ZAP)') {
+            steps {
+                container('zap') {
+                    script {
+                        echo "🎯 Running OWASP ZAP DAST scan..."
+                        
+                        // Create reports directory
+                        sh 'mkdir -p zap-reports'
+                        
+                        // Run ZAP baseline scan
+                        def zapExitCode = sh(
+                            script: """
+                                zap-baseline.py \
+                                  -t ${APP_URL} \
+                                  -r zap-reports/zap-report.html \
+                                  -J zap-reports/zap-report.json \
+                                  -w zap-reports/zap-report.md \
+                                  -c zap-config.conf \
+                                  -I \
+                                  -d \
+                                  || echo \$?
+                            """,
+                            returnStdout: true
+                        ).trim()
+                        
+                        echo "ZAP scan completed with exit code: ${zapExitCode}"
+                        
+                        // Parse results
+                        def zapReport = readJSON file: 'zap-reports/zap-report.json'
+                        def site = zapReport.site[0]
+                        
+                        def critical = site.alerts.findAll { it.riskcode == "3" }.size()
+                        def high = site.alerts.findAll { it.riskcode == "2" }.size()
+                        def medium = site.alerts.findAll { it.riskcode == "1" }.size()
+                        def low = site.alerts.findAll { it.riskcode == "0" }.size()
+                        
+                        env.ZAP_CRITICAL = critical
+                        env.ZAP_HIGH = high
+                        env.ZAP_MEDIUM = medium
+                        env.ZAP_LOW = low
+                        
+                        echo """
+                        📊 ZAP Scan Results:
+                        - Critical: ${critical}
+                        - High: ${high}
+                        - Medium: ${medium}
+                        - Low: ${low}
+                        """
+                        
+                        // Fail build if critical or high vulnerabilities found
+                        if (critical > 0) {
+                            currentBuild.result = 'FAILURE'
+                            error("❌ Found ${critical} CRITICAL vulnerabilities")
+                        } else if (high > 0) {
+                            currentBuild.result = 'UNSTABLE'
+                            echo "⚠️ Found ${high} HIGH vulnerabilities"
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    // Publish ZAP reports
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'zap-reports',
+                        reportFiles: 'zap-report.html',
+                        reportName: 'OWASP ZAP DAST Report'
+                    ])
+                    
+                    // Archive reports
+                    archiveArtifacts artifacts: 'zap-reports/*', fingerprint: true
+                }
+            }
+        }
+        
+        // TODO: Future stages
+        // stage('E2E Tests (Playwright)') { }
+        // stage('Load Tests (k6)') { }
+    }
+    
+    post {
+        always {
+            script {
+                def duration = currentBuild.durationString.replace(' and counting', '')
+                def status = currentBuild.result ?: 'SUCCESS'
+                def color = status == 'SUCCESS' ? 'good' : (status == 'UNSTABLE' ? 'warning' : 'danger')
+                def emoji = status == 'SUCCESS' ? '✅' : (status == 'UNSTABLE' ? '⚠️' : '❌')
+                
+                // Slack notification
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: color,
+                    message: """
+${emoji} *Nightly Regression Pipeline* - ${status}
+
+*Build:* #${env.BUILD_NUMBER}
+*Commit:* ${env.GIT_COMMIT_SHORT}
+*Duration:* ${duration}
+*Time:* ${env.BUILD_TIME}
+
+*OWASP Dependency Check:*
+- Check dependency-check-report.html for details
+
+*DAST Scan (OWASP ZAP):*
+- Critical: ${env.ZAP_CRITICAL ?: 'N/A'}
+- High: ${env.ZAP_HIGH ?: 'N/A'}
+- Medium: ${env.ZAP_MEDIUM ?: 'N/A'}
+- Low: ${env.ZAP_LOW ?: 'N/A'}
+
+*Reports:* ${env.BUILD_URL}
+                    """.trim()
+                )
+            }
+        }
+        
+        success {
+            echo '✅ Nightly regression pipeline completed successfully'
+        }
+        
+        unstable {
+            echo '⚠️ Nightly regression pipeline completed with warnings'
+        }
+        
+        failure {
+            echo '❌ Nightly regression pipeline failed'
+        }
+    }
+}
