@@ -1,130 +1,75 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Transaction History - Borod Bank</title>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            background: linear-gradient(135deg, #0a1628, #1a3a5c);
-            color: #ffffff;
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            flex-direction: column;
-        }
-
-        .navbar-custom {
-            background-color: rgba(10, 22, 40, 0.9);
-            position: fixed;
-            top: 0;
-            width: 100%;
-            z-index: 1000;
-        }
-
-        .navbar-custom a {
-            color: #ffffff !important;
-        }
-
-        .navbar-custom .navbar-brand {
-            font-weight: bold;
-        }
-
-        .container {
-            max-width: 1000px;
-            margin-top: 80px;
-            text-align: center;
-        }
-
-        h2 {
-            margin-bottom: 20px;
-        }
-
-        .table-custom {
-            background-color: rgba(10, 22, 40, 0.8);
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
-            overflow-x: auto;
-            border: 1px solid rgba(147, 197, 253, 0.15);
-        }
-
-        .table-striped tbody tr:nth-of-type(odd) {
-            background-color: rgba(255, 255, 255, 0.05);
-        }
-
-        .table-striped td, .table-striped th {
-            color: #ffffff;
-            font-weight: bold;
-            padding: 15px;
-            border-bottom: 1px solid rgba(37, 99, 235, 0.3);
-        }
-
-        .table-striped th {
-            background-color: rgba(37, 99, 235, 0.2);
-        }
-
-        .text-success {
-            color: #34d399 !important;
-        }
-
-        .text-danger {
-            color: #f87171 !important;
-        }
-
-        .custom-link {
-            color: #93c5fd;
-            text-decoration: none;
-            font-weight: bold;
-        }
-
-        .custom-link:hover {
-            color: #bfdbfe;
-            text-decoration: underline;
-        }
-    </style>
+    <link th:href="@{/css/app.css}" rel="stylesheet">
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-custom">
-    <a class="navbar-brand" href="#">Borod Bank</a>
-    <ul class="navbar-nav ml-auto">
-        <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link" href="/transactions">Transactions</a></li>
-        <li class="nav-item"><a class="nav-link" href="/logout">Logout</a></li>
+<!-- Disclaimer Banner -->
+<div class="disclaimer-banner">
+    <strong>DEMO ENVIRONMENT:</strong> This is a mock application for demonstration purposes only. All data is for testing.
+</div>
+
+<nav class="navbar-bank">
+    <a class="brand" href="/dashboard">
+        <span class="logo-icon">BB</span>
+        Borod Bank
+    </a>
+    <ul class="nav-links">
+        <li><a href="/dashboard">Accounts</a></li>
+        <li><a href="/transactions">Transactions</a></li>
+        <li><a href="/logout">Sign Out</a></li>
     </ul>
 </nav>
 
-<div class="container">
-    <h2 class="text-center">Transaction History</h2>
-    <div class="table-responsive table-custom">
-        <table class="table table-striped">
+<div class="main-content">
+    <h2 style="margin-bottom: 2rem; color: #333;">Transaction History</h2>
+    
+    <div class="table-wrap">
+        <table class="table-bank">
             <thead>
             <tr>
-                <th>ID</th>
-                <th>Type</th>
-                <th>Amount</th>
-                <th>Date</th>
+                <th>Date & Time</th>
+                <th>Description</th>
+                <th style="text-align: right;">Amount</th>
             </tr>
             </thead>
             <tbody>
             <tr th:each="transaction : ${transactions}">
-                <td th:text="${transaction.id}"></td>
-                <td th:text="${transaction.type}"></td>
-                <td th:text="${transaction.amount}"
-                    th:classappend="${transaction.type.contains('Transfer In') || transaction.type == 'Deposit'} ? 'text-success' : 'text-danger'">
-                    <span th:text="${transaction.type.contains('Transfer In') || transaction.type == 'Deposit'} ? '+$' + transaction.amount : '-$' + transaction.amount"></span>
+                <td th:text="${#temporals.format(transaction.timestamp, 'MMM dd, yyyy HH:mm')}"></td>
+                <td th:text="${transaction.description}"></td>
+                <td style="text-align: right;">
+                    <span th:if="${transaction.description.contains('Deposit') or transaction.description.contains('Transfer In')}"
+                          th:text="'+$' + ${#numbers.formatDecimal(transaction.amount, 1, 2)}"
+                          class="amount-in"></span>
+                    <span th:if="${transaction.description.contains('Withdrawal') or transaction.description.contains('Transfer Out')}"
+                          th:text="'-$' + ${#numbers.formatDecimal(transaction.amount, 1, 2)}"
+                          class="amount-out"></span>
                 </td>
-                <td th:text="${transaction.timestamp}"></td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(transactions)}">
+                <td colspan="3" style="text-align: center; padding: 2rem; color: #666;">
+                    No transactions yet. Start by making a deposit!
+                </td>
             </tr>
             </tbody>
         </table>
     </div>
-
-    <p class="text-center mt-3"><a href="/dashboard" class="custom-link">Back to Dashboard</a></p>
+    
+    <p class="text-center mt-3"><a href="/dashboard" class="link-bank">← Back to Dashboard</a></p>
 </div>
 
+<footer class="footer-bank">
+    <div class="footer-simple">
+        <p>&copy; 2026 Borod Bank, N.A. All Rights Reserved.</p>
+        <div class="footer-links-simple">
+            <a href="#">Privacy</a>
+            <a href="#">Security</a>
+            <a href="#">Terms of Use</a>
+        </div>
+    </div>
+</footer>
 </body>
 </html>

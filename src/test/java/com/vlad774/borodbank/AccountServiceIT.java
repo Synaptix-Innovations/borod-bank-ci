@@ -73,7 +73,7 @@ class AccountServiceIT {
 
         List<Transaction> transactions = transactionRepository.findByAccountId(updated.getId());
         assertEquals(1, transactions.size());
-        assertEquals("Deposit", transactions.get(0).getType());
+        assertEquals("Deposit", transactions.get(0).getDescription());
         assertEquals(0, new BigDecimal("100.00").compareTo(transactions.get(0).getAmount()));
     }
 
@@ -129,8 +129,8 @@ class AccountServiceIT {
         assertEquals(2, senderTx.size()); // deposit + transfer out
         assertEquals(1, receiverTx.size()); // transfer in
 
-        assertTrue(senderTx.stream().anyMatch(t -> t.getType().startsWith("Transfer Out")));
-        assertTrue(receiverTx.stream().anyMatch(t -> t.getType().startsWith("Transfer In")));
+        assertTrue(senderTx.stream().anyMatch(t -> t.getDescription().startsWith("Transfer Out")));
+        assertTrue(receiverTx.stream().anyMatch(t -> t.getDescription().startsWith("Transfer In")));
     }
 
     @Test
