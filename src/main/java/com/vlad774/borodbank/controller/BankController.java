@@ -70,6 +70,7 @@ public class BankController {
         } catch (RuntimeException e) {
             model.addAttribute("error", e.getMessage());
             model.addAttribute("account", account);
+            model.addAttribute("featureFlags", featureFlagService);
             return "dashboard";
         }
 
