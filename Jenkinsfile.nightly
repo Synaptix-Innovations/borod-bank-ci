@@ -7,11 +7,11 @@
  * Schedule: Daily at 2:00 AM (cron: H 2 * * *)
  * 
  * Stages:
- * 1. E2E Tests (Playwright) — TODO: Future
- * 2. Load Tests (k6) — TODO: Future
+ * 1. Smoke Tests — /actuator/health, /login, /register, /dashboard
+ * 2. OWASP Dependency Check
  * 3. DAST Scan (OWASP ZAP)
- * 4. OWASP Dependency Check
- * 5. Report & Notify
+ * 4. Report & Notify
+ * (E2E Tests / Load Tests — TODO: Future)
  */
 
 pipeline {
@@ -91,21 +91,61 @@ spec:
             }
         }
         
-        stage('Health Check') {
+        stage('Smoke Tests') {
             steps {
                 script {
-                    echo "🏥 Checking application health..."
-                    
-                    def healthCheck = sh(
-                        script: "curl -f -s -o /dev/null -w '%{http_code}' ${APP_URL}/actuator/health || echo 'FAILED'",
+                    echo "🔍 Running smoke tests..."
+
+                    // Health check — abort pipeline if app is down
+                    def healthStatus = sh(
+                        script: "curl -s -o /dev/null -w '%{http_code}' ${APP_URL}/actuator/health",
                         returnStdout: true
                     ).trim()
-                    
-                    if (healthCheck != '200') {
-                        error("❌ Application is not healthy (status: ${healthCheck}). Aborting nightly tests.")
+
+                    if (healthStatus != '200') {
+                        error("❌ Application is not healthy (status: ${healthStatus}). Aborting nightly tests.")
                     }
-                    
-                    echo "✅ Application is healthy"
+
+                    // Smoke checks
+                    def checks = [
+                        [path: '/login',     expected: '200'],
+                        [path: '/register',  expected: '200'],
+                        [path: '/dashboard', expected: '302'],
+                    ]
+
+                    def results = ['/actuator/health': healthStatus]
+                    def failed  = []
+
+                    checks.each { check ->
+                        def status = sh(
+                            script: "curl -s -o /dev/null -w '%{http_code}' ${APP_URL}${check.path}",
+                            returnStdout: true
+                        ).trim()
+                        results[check.path] = status
+                        if (status != check.expected) {
+                            failed.add("${check.path}: expected ${check.expected}, got ${status}")
+                        }
+                    }
+
+                    echo """
+📊 Smoke Test Results:
+- /actuator/health → ${results['/actuator/health']} (expected 200)
+- /login           → ${results['/login']}           (expected 200)
+- /register        → ${results['/register']}        (expected 200)
+- /dashboard       → ${results['/dashboard']}       (expected 302)
+                    """.stripIndent()
+
+                    env.SMOKE_HEALTH    = results['/actuator/health']
+                    env.SMOKE_LOGIN     = results['/login']
+                    env.SMOKE_REGISTER  = results['/register']
+                    env.SMOKE_DASHBOARD = results['/dashboard']
+
+                    if (failed) {
+                        currentBuild.result = 'UNSTABLE'
+                        echo "⚠️ Smoke test failures:\n${failed.join('\n')}"
+                    } else {
+                        echo "✅ All smoke tests passed"
+                    }
                 }
             }
         }
@@ -242,6 +282,12 @@ ${emoji} *Nightly Regression Pipeline* - ${status}
 *Commit:* ${env.GIT_COMMIT_SHORT}
 *Duration:* ${duration}
 *Time:* ${env.BUILD_TIME}
+
+*Smoke Tests:*
+- /actuator/health → ${env.SMOKE_HEALTH    ?: 'N/A'} (expected 200)
+- /login           → ${env.SMOKE_LOGIN     ?: 'N/A'} (expected 200)
+- /register        → ${env.SMOKE_REGISTER  ?: 'N/A'} (expected 200)
+- /dashboard       → ${env.SMOKE_DASHBOARD ?: 'N/A'} (expected 302)
 
 *OWASP Dependency Check:*
 - Check dependency-check-report.html for details
