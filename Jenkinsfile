@@ -21,7 +21,7 @@ spec:
       image: jenkins/inbound-agent:3261.v9c670a_4748a_9-1
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 128Mi
         limits:
           cpu: 500m
@@ -37,7 +37,7 @@ spec:
         allowPrivilegeEscalation: false
       resources:
         requests:
-          cpu: 200m
+          cpu: 100m
           memory: 256Mi
         limits:
           cpu: 2000m
@@ -58,7 +58,7 @@ spec:
         allowPrivilegeEscalation: false
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 256Mi
         limits:
           cpu: 2000m
@@ -74,7 +74,7 @@ spec:
         allowPrivilegeEscalation: false
       resources:
         requests:
-          cpu: 50m
+          cpu: 25m
           memory: 128Mi
         limits:
           cpu: 500m
@@ -90,7 +90,7 @@ spec:
         allowPrivilegeEscalation: false
       resources:
         requests:
-          cpu: 50m
+          cpu: 25m
           memory: 128Mi
         limits:
           cpu: 200m
@@ -106,7 +106,7 @@ spec:
         allowPrivilegeEscalation: false
       resources:
         requests:
-          cpu: 50m
+          cpu: 25m
           memory: 64Mi
         limits:
           cpu: 100m
@@ -122,7 +122,7 @@ spec:
         allowPrivilegeEscalation: false
       resources:
         requests:
-          cpu: 50m
+          cpu: 25m
           memory: 128Mi
         limits:
           cpu: 500m
@@ -139,7 +139,7 @@ spec:
           value: testpassword
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 256Mi
         limits:
           cpu: 500m
@@ -165,7 +165,7 @@ spec:
         allowPrivilegeEscalation: false
       resources:
         requests:
-          cpu: 50m
+          cpu: 25m
           memory: 128Mi
         limits:
           cpu: 200m
