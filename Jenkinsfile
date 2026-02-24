@@ -363,7 +363,8 @@ spec:
                                       -Dsonar.java.binaries=target/classes \
                                       -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
                                       -Dsonar.junit.reportPaths=target/surefire-reports \
-                                      -Dsonar.userHome=/tmp/sonar-cache
+                                      -Dsonar.userHome=/tmp/sonar-cache \
+                                      -Dsonar.scanner.skipJreProvisioning=true
                                 '''
                             }
                         }
