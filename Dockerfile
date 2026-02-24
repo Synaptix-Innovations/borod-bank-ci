@@ -19,6 +19,10 @@ RUN chmod +x mvnw && ./mvnw clean package -DskipTests
 # Runtime stage
 FROM eclipse-temurin:17-jre-alpine
 
+# Upgrade Alpine packages to pick up latest security patches
+# Fixes: CVE-2026-1584 (gnutls), CVE-2026-25646 (libpng)
+RUN apk upgrade --no-cache
+
 EXPOSE 8080
 
 ENV APP_HOME=/usr/src/app
