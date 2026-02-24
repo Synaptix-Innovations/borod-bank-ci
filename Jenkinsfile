@@ -11,6 +11,7 @@ metadata:
     app: borod-bank-build
 spec:
   serviceAccountName: jenkins
+  priorityClassName: jenkins-build
   # Pod-level security: no privilege escalation allowed for any container
   securityContext:
     fsGroup: 1000
