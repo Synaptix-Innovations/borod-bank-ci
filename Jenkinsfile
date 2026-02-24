@@ -177,8 +177,10 @@ spec:
 
   volumes:
     - name: m2-cache
-      persistentVolumeClaim:
-        claimName: jenkins-maven-cache
+      # emptyDir: EBS PVC causes node affinity conflict in multi-AZ cluster —
+      # agent must land in the PVC's AZ which is always the most loaded node.
+      # TODO: replace with EFS-backed PVC (ReadWriteMany, cross-AZ) — FEATURE-016
+      emptyDir: {}
     # cosign-signing-key is managed by ESO — sourced from AWS SM borod-bank/cosign
     - name: cosign-secret
       secret:
