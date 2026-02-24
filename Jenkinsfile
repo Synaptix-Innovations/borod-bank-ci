@@ -177,7 +177,8 @@ spec:
 
   volumes:
     - name: m2-cache
-      emptyDir: {}
+      persistentVolumeClaim:
+        claimName: jenkins-maven-cache
     # cosign-signing-key is managed by ESO — sourced from AWS SM borod-bank/cosign
     - name: cosign-secret
       secret:
@@ -206,14 +207,6 @@ spec:
     }
 
     stages {
-
-        stage('Git Checkout') {
-            steps {
-                timeout(time: 2, unit: 'MINUTES') {
-                    git branch: 'main', credentialsId: 'git-cred', url: 'https://github.com/Vlad774/borod-bank-ci.git'
-                }
-            }
-        }
 
         // ── PARALLEL: Security & Lint — Gitleaks + Hadolint + Trivy FS ────────
         // Trivy FS does not need compiled classes — runs before Compile
@@ -618,7 +611,7 @@ spec:
                         sh """
                             curl -s -X POST "\$SLACK_HOOK_URL" \\
                               -H "Content-Type: application/json" \\
-                              -d '{"text":"borod-bank build #${BUILD_NUMBER} SUCCESS - ${DOCKER_IMAGE}:${DOCKER_TAG} - ${env.BUILD_URL}"}' || true
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} SUCCESS - ${DOCKER_IMAGE}:${DOCKER_TAG} - ${BUILD_URL}"}' || true
                         """
                     }
                 }
@@ -631,7 +624,7 @@ spec:
                         sh """
                             curl -s -X POST "\$SLACK_HOOK_URL" \\
                               -H "Content-Type: application/json" \\
-                              -d '{"text":"borod-bank build #${BUILD_NUMBER} FAILED - ${env.BUILD_URL}"}' || true
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} FAILED - ${BUILD_URL}"}' || true
                         """
                     }
                 }
@@ -644,7 +637,7 @@ spec:
                         sh """
                             curl -s -X POST "\$SLACK_HOOK_URL" \\
                               -H "Content-Type: application/json" \\
-                              -d '{"text":"borod-bank build #${BUILD_NUMBER} UNSTABLE - ${env.BUILD_URL}"}' || true
+                              -d '{"text":"borod-bank build #${BUILD_NUMBER} UNSTABLE - ${BUILD_URL}"}' || true
                         """
                     }
                 }
