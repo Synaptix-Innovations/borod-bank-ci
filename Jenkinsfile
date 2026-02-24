@@ -58,7 +58,7 @@ spec:
         allowPrivilegeEscalation: false
       resources:
         requests:
-          cpu: 50m
+          cpu: 25m
           memory: 256Mi
         limits:
           cpu: 2000m
@@ -139,7 +139,7 @@ spec:
           value: testpassword
       resources:
         requests:
-          cpu: 50m
+          cpu: 25m
           memory: 256Mi
         limits:
           cpu: 500m
