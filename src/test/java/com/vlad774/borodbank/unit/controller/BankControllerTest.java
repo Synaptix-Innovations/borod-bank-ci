@@ -19,6 +19,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -43,7 +44,7 @@ class BankControllerTest {
 
     @Test
     void register_isPublicAndReturnsOk() throws Exception {
-        mockMvc.perform(get("/register"))
+        mockMvc.perform(get("/register").with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("register"));
     }
@@ -88,7 +89,8 @@ class BankControllerTest {
 
         mockMvc.perform(post("/register")
                         .param("username", "newuser")
-                        .param("password", "pass123"))
+                        .param("password", "pass123")
+                        .with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/login"));
     }
@@ -100,7 +102,8 @@ class BankControllerTest {
 
         mockMvc.perform(post("/register")
                         .param("username", "taken")
-                        .param("password", "pass"))
+                        .param("password", "pass")
+                        .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("register"))
                 .andExpect(model().attributeExists("error"));
@@ -114,7 +117,7 @@ class BankControllerTest {
         Account account = accountWithBalance("500.00");
         when(accountService.findAccountByUsername("alice")).thenReturn(account);
 
-        mockMvc.perform(post("/withdraw").param("amount", "100"))
+        mockMvc.perform(post("/withdraw").param("amount", "100").with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/dashboard"));
     }
@@ -127,7 +130,7 @@ class BankControllerTest {
         doThrow(new RuntimeException("Insufficient funds"))
                 .when(accountService).withdraw(any(), any());
 
-        mockMvc.perform(post("/withdraw").param("amount", "1000"))
+        mockMvc.perform(post("/withdraw").param("amount", "1000").with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
                 .andExpect(model().attributeExists("error"));
@@ -144,7 +147,8 @@ class BankControllerTest {
 
         mockMvc.perform(post("/transfer")
                         .param("toUsername", "bob")
-                        .param("amount", "100"))
+                        .param("amount", "100")
+                        .with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/dashboard"));
     }
@@ -158,7 +162,8 @@ class BankControllerTest {
 
         mockMvc.perform(post("/transfer")
                         .param("toUsername", "bob")
-                        .param("amount", "100"))
+                        .param("amount", "100")
+                        .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
                 .andExpect(model().attributeExists("error"));
@@ -177,7 +182,8 @@ class BankControllerTest {
 
         mockMvc.perform(post("/transfer")
                         .param("toUsername", "ghost")
-                        .param("amount", "100"))
+                        .param("amount", "100")
+                        .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
                 .andExpect(model().attributeExists("error"));

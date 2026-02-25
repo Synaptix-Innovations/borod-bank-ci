@@ -456,8 +456,7 @@ spec:
                                     checkov \
                                       --directory . \
                                       --framework dockerfile \
-                                      --output cli \
-                                      --soft-fail
+                                      --output cli
                                 '''
                             }
                         }
