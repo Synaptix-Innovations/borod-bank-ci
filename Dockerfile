@@ -27,12 +27,18 @@ EXPOSE 8080
 
 ENV APP_HOME=/usr/src/app
 
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
 WORKDIR $APP_HOME
 
 # Copy the built JAR from builder stage
 COPY --from=builder /build/target/*.jar app.jar
 
+RUN chown appuser:appgroup app.jar
+
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
+
+USER appuser
 
 CMD ["java", "-jar", "app.jar"]
