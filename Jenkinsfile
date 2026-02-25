@@ -370,6 +370,51 @@ spec:
             }
         }
 
+        // ── AI Code Review — non-blocking, KEDA wakes GPU node on demand ────
+        stage('AI Code Review') {
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    container('tools') {
+                        sh '''
+                            GATEWAY_URL="http://aiops-gateway.aiops.svc.cluster.local:8080"
+
+                            # Get diff of changed Java sources (capped at 4KB)
+                            git diff HEAD~1 HEAD -- src/ 2>/dev/null | head -c 4000 > /tmp/ai-diff.txt || true
+
+                            python3 - <<'PYEOF'
+import json, os, sys
+
+diff = open('/tmp/ai-diff.txt').read().strip() or "No source changes"
+ctx  = "Build #{} commit {}".format(
+    os.environ.get('BUILD_NUMBER', '?'),
+    os.environ.get('GIT_COMMIT', '?')[:8]
+)
+payload = json.dumps({"diff": diff, "context": ctx})
+with open('/tmp/ai-payload.json', 'w') as f:
+    f.write(payload)
+print("Diff size: {} chars".format(len(diff)))
+PYEOF
+
+                            RESPONSE=$(curl -sf -X POST "${GATEWAY_URL}/review" \
+                                -H "Content-Type: application/json" \
+                                -d @/tmp/ai-payload.json \
+                                --max-time 660 \
+                                || echo '{"review":"Gateway unavailable or timed out"}')
+
+                            echo "=== AI Code Review ==="
+                            echo "$RESPONSE" | python3 -c \
+                                "import json,sys; print(json.load(sys.stdin).get('review',''))" \
+                                2>/dev/null || echo "$RESPONSE"
+                            echo "======================"
+                        '''
+                    }
+                }
+            }
+            post {
+                failure { echo "AI Code Review failed — non-blocking, pipeline continues" }
+            }
+        }
+
         stage('Build Package') {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
