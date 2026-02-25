@@ -319,52 +319,45 @@ spec:
             }
         }
 
-        // ── PARALLEL: Tests & SAST — Unit Tests + SonarQube run together ────
-        // SonarQube uses target/classes (from Compile). jacoco.xml may not
-        // exist yet — sonar warns but does not fail; coverage visible next run.
-        stage('Tests & SAST') {
-            parallel {
+        // ── Tests & SAST — Unit Tests first, then SonarQube (needs jacoco.xml) ────
+        // SonarQube runs AFTER tests to ensure jacoco.xml and surefire reports exist
+        stage('Unit Tests + Coverage') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    // JaCoCo agent is attached automatically via pom.xml
+                    sh 'mvn test -q'
+                }
+            }
+            post {
+                always {
+                    junit '**/target/surefire-reports/*.xml'
+                    // Publish JaCoCo coverage report in Jenkins UI
+                    jacoco(
+                        execPattern: '**/target/jacoco.exec',
+                        classPattern: '**/target/classes',
+                        sourcePattern: '**/src/main/java',
+                        minimumLineCoverage: '70'
+                    )
+                }
+            }
+        }
 
-                stage('Unit Tests + Coverage') {
-                    steps {
-                        timeout(time: 10, unit: 'MINUTES') {
-                            // JaCoCo agent is attached automatically via pom.xml
-                            sh 'mvn test -q'
-                        }
-                    }
-                    post {
-                        always {
-                            junit '**/target/surefire-reports/*.xml'
-                            // Publish JaCoCo coverage report in Jenkins UI
-                            jacoco(
-                                execPattern: '**/target/jacoco.exec',
-                                classPattern: '**/target/classes',
-                                sourcePattern: '**/src/main/java',
-                                minimumLineCoverage: '70'
-                            )
-                        }
+        stage('SonarQube Analysis') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    withSonarQubeEnv('sonar') {
+                        sh '''
+                            ${SCANNER_HOME}/bin/sonar-scanner \
+                              -Dsonar.projectName=BorodBank \
+                              -Dsonar.projectKey=BorodBank \
+                              -Dsonar.java.binaries=target/classes \
+                              -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                              -Dsonar.junit.reportPaths=target/surefire-reports \
+                              -Dsonar.userHome=/tmp/sonar-cache \
+                              -Dsonar.scanner.skipJreProvisioning=true
+                        '''
                     }
                 }
-
-                stage('SonarQube Analysis') {
-                    steps {
-                        timeout(time: 10, unit: 'MINUTES') {
-                            withSonarQubeEnv('sonar') {
-                                sh '''
-                                    ${SCANNER_HOME}/bin/sonar-scanner \
-                                      -Dsonar.projectName=BorodBank \
-                                      -Dsonar.projectKey=BorodBank \
-                                      -Dsonar.java.binaries=target/classes \
-                                      -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                                      -Dsonar.junit.reportPaths=target/surefire-reports \
-                                      -Dsonar.userHome=/tmp/sonar-cache \
-                                      -Dsonar.scanner.skipJreProvisioning=true
-                                '''
-                            }
-                        }
-                    }
-                }
-
             }
         }
 
