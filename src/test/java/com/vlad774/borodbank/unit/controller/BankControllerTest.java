@@ -28,6 +28,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(SecurityConfig.class)
 class BankControllerTest {
 
+    private static final String REGISTER_URL = "/register";
+    private static final String AMOUNT_PARAM = "amount";
+
     @Autowired private MockMvc mockMvc;
 
     @MockBean private AccountService accountService;
@@ -44,7 +47,7 @@ class BankControllerTest {
 
     @Test
     void register_isPublicAndReturnsOk() throws Exception {
-        mockMvc.perform(get("/register").with(csrf()))
+        mockMvc.perform(get(REGISTER_URL).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("register"));
     }
@@ -87,7 +90,7 @@ class BankControllerTest {
         when(accountService.registerAccount(anyString(), anyString()))
                 .thenReturn(new Account());
 
-        mockMvc.perform(post("/register")
+        mockMvc.perform(post(REGISTER_URL)
                         .param("username", "newuser")
                         .param("password", "pass123")
                         .with(csrf()))
@@ -100,7 +103,7 @@ class BankControllerTest {
         when(accountService.registerAccount(anyString(), anyString()))
                 .thenThrow(new RuntimeException("Username already exists"));
 
-        mockMvc.perform(post("/register")
+        mockMvc.perform(post(REGISTER_URL)
                         .param("username", "taken")
                         .param("password", "pass")
                         .with(csrf()))
@@ -117,7 +120,7 @@ class BankControllerTest {
         Account account = accountWithBalance("500.00");
         when(accountService.findAccountByUsername("alice")).thenReturn(account);
 
-        mockMvc.perform(post("/withdraw").param("amount", "100").with(csrf()))
+        mockMvc.perform(post("/withdraw").param(AMOUNT_PARAM, "100").with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/dashboard"));
     }
@@ -130,7 +133,7 @@ class BankControllerTest {
         doThrow(new RuntimeException("Insufficient funds"))
                 .when(accountService).withdraw(any(), any());
 
-        mockMvc.perform(post("/withdraw").param("amount", "1000").with(csrf()))
+        mockMvc.perform(post("/withdraw").param(AMOUNT_PARAM, "1000").with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
                 .andExpect(model().attributeExists("error"));
@@ -147,7 +150,7 @@ class BankControllerTest {
 
         mockMvc.perform(post("/transfer")
                         .param("toUsername", "bob")
-                        .param("amount", "100")
+                        .param(AMOUNT_PARAM, "100")
                         .with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/dashboard"));
@@ -162,7 +165,7 @@ class BankControllerTest {
 
         mockMvc.perform(post("/transfer")
                         .param("toUsername", "bob")
-                        .param("amount", "100")
+                        .param(AMOUNT_PARAM, "100")
                         .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
@@ -182,7 +185,7 @@ class BankControllerTest {
 
         mockMvc.perform(post("/transfer")
                         .param("toUsername", "ghost")
-                        .param("amount", "100")
+                        .param(AMOUNT_PARAM, "100")
                         .with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
