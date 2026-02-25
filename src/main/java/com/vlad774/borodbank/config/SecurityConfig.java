@@ -39,7 +39,6 @@ public class SecurityConfig {
                 .authenticationProvider(authenticationProvider())
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .requireCsrfProtectionMatcher(new AntPathRequestMatcher("/register"))
                 )
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers("/register", "/actuator/health").permitAll()
