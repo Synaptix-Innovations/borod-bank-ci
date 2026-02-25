@@ -41,7 +41,7 @@ public class SecurityConfig {
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                 )
                 .authorizeHttpRequests(authz -> authz
-                        .requestMatchers("/register", "/actuator/health").permitAll()
+                        .requestMatchers("/register", "/actuator/health", "/actuator/prometheus").permitAll()
                         .requestMatchers("/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
                         .anyRequest().authenticated()
                 )
