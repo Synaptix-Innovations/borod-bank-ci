@@ -268,39 +268,22 @@ spec:
             script {
                 def duration = currentBuild.durationString.replace(' and counting', '')
                 def status = currentBuild.result ?: 'SUCCESS'
-                def color = status == 'SUCCESS' ? 'good' : (status == 'UNSTABLE' ? 'warning' : 'danger')
                 def emoji = status == 'SUCCESS' ? '✅' : (status == 'UNSTABLE' ? '⚠️' : '❌')
-                
-                // Slack notification
-                slackSend(
-                    channel: env.SLACK_CHANNEL,
-                    color: color,
-                    message: """
-${emoji} *Nightly Regression Pipeline* - ${status}
 
-*Build:* #${env.BUILD_NUMBER}
-*Commit:* ${env.GIT_COMMIT_SHORT}
-*Duration:* ${duration}
-*Time:* ${env.BUILD_TIME}
-
-*Smoke Tests:*
-- /actuator/health → ${env.SMOKE_HEALTH    ?: 'N/A'} (expected 200)
-- /login           → ${env.SMOKE_LOGIN     ?: 'N/A'} (expected 200)
-- /register        → ${env.SMOKE_REGISTER  ?: 'N/A'} (expected 200)
-- /dashboard       → ${env.SMOKE_DASHBOARD ?: 'N/A'} (expected 302)
-
-*OWASP Dependency Check:*
-- Check dependency-check-report.html for details
-
-*DAST Scan (OWASP ZAP):*
-- Critical: ${env.ZAP_CRITICAL ?: 'N/A'}
-- High: ${env.ZAP_HIGH ?: 'N/A'}
-- Medium: ${env.ZAP_MEDIUM ?: 'N/A'}
-- Low: ${env.ZAP_LOW ?: 'N/A'}
-
-*Reports:* ${env.BUILD_URL}
-                    """.trim()
-                )
+                container('maven') {
+                    withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
+                        def payload = [
+                            channel: env.SLACK_CHANNEL,
+                            text: "${emoji} *Nightly Regression Pipeline* — ${status}\n" +
+                                  "*Build:* #${env.BUILD_NUMBER} | *Commit:* ${env.GIT_COMMIT_SHORT ?: 'N/A'} | *Duration:* ${duration}\n" +
+                                  "*Smoke Tests:* health=${env.SMOKE_HEALTH ?: 'N/A'} login=${env.SMOKE_LOGIN ?: 'N/A'} register=${env.SMOKE_REGISTER ?: 'N/A'} dashboard=${env.SMOKE_DASHBOARD ?: 'N/A'}\n" +
+                                  "*ZAP:* critical=${env.ZAP_CRITICAL ?: 'N/A'} high=${env.ZAP_HIGH ?: 'N/A'} medium=${env.ZAP_MEDIUM ?: 'N/A'} low=${env.ZAP_LOW ?: 'N/A'}\n" +
+                                  "*Reports:* ${env.BUILD_URL}"
+                        ]
+                        writeJSON file: 'slack-nightly-payload.json', json: payload
+                        sh 'curl -s -X POST "$SLACK_HOOK_URL" -H "Content-Type: application/json" -d @slack-nightly-payload.json || true'
+                    }
+                }
             }
         }
         
