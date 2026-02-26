@@ -422,11 +422,12 @@ PYEOF
             steps {
                 timeout(time: 20, unit: 'MINUTES') {
                     sh '''
+                        mkdir -p /tmp/nvd-cache
                         mvn org.owasp:dependency-check-maven:check \
                           -DfailBuildOnCVSS=7 \
                           -Dformats=HTML,JSON \
                           -DnvdApiDelay=4000 \
-                          -Ddata.directory=/root/.m2/nvd-cache
+                          -Ddata.directory=/tmp/nvd-cache
                     '''
                 }
             }
