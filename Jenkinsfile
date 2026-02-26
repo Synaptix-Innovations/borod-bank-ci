@@ -415,6 +415,35 @@ PYEOF
             }
         }
 
+        // ── SCA — OWASP Dependency Check — blocks on CVSS >= 7 (HIGH/CRITICAL) ──
+        // NVD database is cached in the EFS Maven PVC (/root/.m2/nvd-cache)
+        // First run downloads ~200MB from NVD — subsequent runs are incremental
+        stage('OWASP Dependency Check') {
+            steps {
+                timeout(time: 20, unit: 'MINUTES') {
+                    sh '''
+                        mvn org.owasp:dependency-check-maven:check \
+                          -DfailBuildOnCVSS=7 \
+                          -Dformats=HTML,JSON \
+                          -DnvdApiDelay=4000 \
+                          -Ddata.directory=/root/.m2/nvd-cache
+                    '''
+                }
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing: true,
+                        reportDir: 'target',
+                        reportFiles: 'dependency-check-report.html',
+                        reportName: 'OWASP Dependency Check'
+                    ])
+                    archiveArtifacts artifacts: 'target/dependency-check-report.json',
+                                     allowEmptyArchive: true
+                }
+            }
+        }
+
         stage('Build Package') {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
