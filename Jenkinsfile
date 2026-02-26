@@ -257,13 +257,13 @@ spec:
                     steps {
                         timeout(time: 10, unit: 'MINUTES') {
                             container('trivy') {
-                                // Fail on CRITICAL with available fix — actionable findings only
+                                // Fail on CRITICAL/HIGH with available fix — actionable findings only
                                 sh '''
                                     trivy fs \
                                       --cache-dir /tmp/trivy-cache \
                                       --format table \
                                       --exit-code 1 \
-                                      --severity CRITICAL \
+                                      --severity CRITICAL,HIGH \
                                       --ignore-unfixed \
                                       -o trivy-fs-report.html \
                                       .
