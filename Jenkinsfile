@@ -371,7 +371,9 @@ spec:
         }
 
         // ── AI Code Review — non-blocking, KEDA wakes GPU node on demand ────
+        // TEMPORARILY SKIPPED — GPU node not available, stage times out 11min
         stage('AI Code Review') {
+            when { expression { return false } }
             steps {
                 timeout(time: 15, unit: 'MINUTES') {
                     container('tools') {
