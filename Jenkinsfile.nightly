@@ -5,7 +5,7 @@
  *
  * Schedule: Daily at 2:00 AM (cron: H 2 * * *)
  *
- * 12 Stages:
+ * 13 Stages:
  *  1. Checkout
  *  2. Unit Tests + Coverage (JaCoCo 70%)
  *  3. Integration Tests (MySQL sidecar)
@@ -17,10 +17,11 @@
  *  9. AI Nightly Analysis
  * 10. Smoke Tests (conditional — app reachable)
  * 11. DAST Scan / ZAP (conditional — app reachable)
- * 12. Push Metrics (Pushgateway → Prometheus → Grafana)
+ * 12. Pen Test / Nuclei (conditional — app reachable)
+ * 13. Push Metrics (Pushgateway → Prometheus → Grafana)
  *
- * 10 of 12 stages work without a running cluster.
- * Smoke Tests + ZAP gracefully skip when app is offline.
+ * 10 of 13 stages work without a running cluster.
+ * Smoke Tests + ZAP + Nuclei gracefully skip when app is offline.
  */
 
 pipeline {
@@ -117,6 +118,18 @@ spec:
       limits:
         cpu: 500m
         memory: 1Gi
+
+  - name: nuclei
+    image: projectdiscovery/nuclei:v3.3.7
+    command: [cat]
+    tty: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
   volumes:
   - name: maven-cache
@@ -736,7 +749,88 @@ except:
             }
         }
 
-        // ── Stage 12: Push Metrics ─────────────────────────────────────────
+        // ── Stage 12: Pen Test — Nuclei (conditional) ────────────────────
+        stage('Pen Test (Nuclei)') {
+            when {
+                expression {
+                    return env.APP_REACHABLE == 'true'
+                }
+            }
+            steps {
+                container('nuclei') {
+                    script {
+                        sh 'mkdir -p nuclei-reports'
+
+                        // Update templates to latest
+                        sh 'nuclei -update-templates -silent 2>/dev/null || true'
+
+                        // Run safe templates only — no DoS, no aggressive fuzzing
+                        // Categories: cves, misconfigurations, exposures, default-logins, technologies
+                        def exitCode = sh(
+                            script: """
+                                nuclei \
+                                  -target ${APP_URL} \
+                                  -tags cve,misconfig,exposure,default-login,tech \
+                                  -exclude-tags dos,fuzz,intrusive \
+                                  -severity critical,high,medium \
+                                  -rate-limit 50 \
+                                  -bulk-size 10 \
+                                  -concurrency 5 \
+                                  -timeout 10 \
+                                  -retries 1 \
+                                  -no-interactsh \
+                                  -jsonl -output nuclei-reports/nuclei-results.jsonl \
+                                  -markdown-export nuclei-reports/nuclei-results.md \
+                                  -silent \
+                                  || true
+                            """,
+                            returnStatus: true
+                        )
+
+                        // Parse results
+                        if (fileExists('nuclei-reports/nuclei-results.jsonl')) {
+                            def critical = sh(
+                                script: "grep -c '\"severity\":\"critical\"' nuclei-reports/nuclei-results.jsonl || echo 0",
+                                returnStdout: true
+                            ).trim()
+                            def high = sh(
+                                script: "grep -c '\"severity\":\"high\"' nuclei-reports/nuclei-results.jsonl || echo 0",
+                                returnStdout: true
+                            ).trim()
+                            def medium = sh(
+                                script: "grep -c '\"severity\":\"medium\"' nuclei-reports/nuclei-results.jsonl || echo 0",
+                                returnStdout: true
+                            ).trim()
+
+                            env.NUCLEI_CRITICAL = critical
+                            env.NUCLEI_HIGH = high
+                            env.NUCLEI_MEDIUM = medium
+
+                            echo "Nuclei Pen Test: critical=${critical} high=${high} medium=${medium}"
+
+                            if (critical.toInteger() > 0) {
+                                currentBuild.result = 'FAILURE'
+                                error("Nuclei found ${critical} CRITICAL vulnerabilities")
+                            } else if (high.toInteger() > 0) {
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        } else {
+                            env.NUCLEI_CRITICAL = '0'
+                            env.NUCLEI_HIGH = '0'
+                            env.NUCLEI_MEDIUM = '0'
+                            echo "Nuclei: no findings"
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'nuclei-reports/*', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // ── Stage 13: Push Metrics ─────────────────────────────────────────
         stage('Push Metrics') {
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
@@ -771,6 +865,9 @@ nightly_k6_rps ${env.K6_RPS ?: 0}
 nightly_k6_error_rate ${env.K6_ERROR_RATE ?: 0}
 nightly_zap_alerts_high ${env.ZAP_HIGH ?: 0}
 nightly_zap_alerts_medium ${env.ZAP_MEDIUM ?: 0}
+nightly_nuclei_critical ${env.NUCLEI_CRITICAL ?: 0}
+nightly_nuclei_high ${env.NUCLEI_HIGH ?: 0}
+nightly_nuclei_medium ${env.NUCLEI_MEDIUM ?: 0}
 nightly_license_status ${licenseVal}
 """
                             writeFile file: 'nightly-metrics.txt', text: metrics.trim() + '\n'
@@ -802,8 +899,8 @@ nightly_license_status ${licenseVal}
                 def statusColor = status == 'SUCCESS' ? '#36a64f' : (status == 'UNSTABLE' ? '#daa038' : '#dc3545')
 
                 def smokeSection = env.APP_REACHABLE == 'true'
-                    ? "*Smoke:* PASSED | *ZAP:* critical=${env.ZAP_CRITICAL ?: '0'} high=${env.ZAP_HIGH ?: '0'} medium=${env.ZAP_MEDIUM ?: '0'}"
-                    : "*Smoke:* skipped (app offline) | *ZAP:* skipped"
+                    ? "*Smoke:* PASSED | *ZAP:* critical=${env.ZAP_CRITICAL ?: '0'} high=${env.ZAP_HIGH ?: '0'} medium=${env.ZAP_MEDIUM ?: '0'} | *Nuclei:* critical=${env.NUCLEI_CRITICAL ?: '0'} high=${env.NUCLEI_HIGH ?: '0'} medium=${env.NUCLEI_MEDIUM ?: '0'}"
+                    : "*Smoke:* skipped (app offline) | *ZAP:* skipped | *Nuclei:* skipped"
 
                 def aiSection = env.AI_ANALYSIS ? env.AI_ANALYSIS.take(300) : 'N/A (gateway unreachable)'
 

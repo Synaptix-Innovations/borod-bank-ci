@@ -673,7 +673,8 @@ PYEOF
                         '''
 
                         // E2E Login Flow: register → login → dashboard
-                        sh '''#!/bin/bash
+                        // Note: tools container uses BusyBox — no grep -P, use sed instead
+                        sh '''#!/bin/sh
                             set -e
                             APP="https://app.vladinnovations.info"
                             USER="ci_test_$(date +%s)"
@@ -681,7 +682,8 @@ PYEOF
                             JAR="/tmp/e2e_cookies.txt"
 
                             echo "=== E2E: Get CSRF from /register ==="
-                            CSRF=$(curl -skf -c "$JAR" "$APP/register" | grep -oP 'name="_csrf" value="\\K[^"]+')
+                            CSRF=$(curl -skf -c "$JAR" "$APP/register" \
+                              | sed -n 's/.*name="_csrf" value="\\([^"]*\\)".*/\\1/p' | head -1)
                             [ -z "$CSRF" ] && echo "FAIL: No CSRF on /register" && exit 1
 
                             echo "=== E2E: Register $USER ==="
@@ -690,7 +692,8 @@ PYEOF
                               -d "username=$USER&password=$PASS&_csrf=$CSRF"
 
                             echo "=== E2E: Get CSRF from /login ==="
-                            CSRF=$(curl -skf -c "$JAR" "$APP/login" | grep -oP 'name="_csrf" value="\\K[^"]+')
+                            CSRF=$(curl -skf -c "$JAR" "$APP/login" \
+                              | sed -n 's/.*name="_csrf" value="\\([^"]*\\)".*/\\1/p' | head -1)
                             [ -z "$CSRF" ] && echo "FAIL: No CSRF on /login" && exit 1
 
                             echo "=== E2E: Login ==="
