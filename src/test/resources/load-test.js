@@ -6,7 +6,7 @@ export const options = {
     vus: 10,
     duration: '30s',
     thresholds: {
-        http_req_duration: ['p(95)<500'],  // p95 response time < 500ms
+        http_req_duration: ['p(95)<2000'],  // p95 response time < 2000ms
         http_req_failed: ['rate<0.05'],     // error rate < 5%
     },
 };

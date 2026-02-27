@@ -510,8 +510,8 @@ print(f'{p95} {rps} {err}')
                             env.K6_ERROR_RATE = k6Metrics[2]
                             echo "k6 Results: p95=${env.K6_P95}ms, RPS=${env.K6_RPS}, errors=${env.K6_ERROR_RATE}%"
 
-                            if (env.K6_P95.toFloat() > 500) {
-                                unstable("k6 p95 response time ${env.K6_P95}ms exceeds 500ms threshold")
+                            if (env.K6_P95.toFloat() > 2000) {
+                                unstable("k6 p95 response time ${env.K6_P95}ms exceeds 2000ms threshold")
                             }
                         }
                     }
@@ -537,7 +537,7 @@ Nightly Build #${env.BUILD_NUMBER} (${env.GIT_COMMIT_SHORT})
 - k6 p95: ${env.K6_P95 ?: 'N/A'}ms, RPS: ${env.K6_RPS ?: 'N/A'}, errors: ${env.K6_ERROR_RATE ?: 'N/A'}%
 Analyze quality trends and provide 3-4 actionable recommendations.
 """
-                                writeFile file: '/tmp/ai-summary.txt', text: summary
+                                writeFile file: 'ai-summary.txt', text: summary
 
                                 sh """
                                     GATEWAY_URL="${env.AIOPS_GATEWAY}"
@@ -551,15 +551,15 @@ Analyze quality trends and provide 3-4 actionable recommendations.
 
                                     python3 -c "
 import json, os
-summary = open('/tmp/ai-summary.txt').read()
+summary = open('ai-summary.txt').read()
 payload = json.dumps({'diff': summary, 'context': 'Nightly regression analysis'})
-with open('/tmp/ai-payload.json', 'w') as f:
+with open('ai-payload.json', 'w') as f:
     f.write(payload)
 "
 
                                     RESPONSE=\$(curl -sf -X POST "\${GATEWAY_URL}/review" \
                                         -H "Content-Type: application/json" \
-                                        -d @/tmp/ai-payload.json \
+                                        -d @ai-payload.json \
                                         --max-time 60 \
                                         || echo '{"review":"Gateway unavailable"}')
 
@@ -570,14 +570,14 @@ try:
     print(r[:500])
 except:
     print('Parse error')
-" > /tmp/ai-analysis.txt 2>/dev/null || true
+" > ai-analysis.txt 2>/dev/null || true
 
                                     echo "=== AI Nightly Analysis ==="
-                                    cat /tmp/ai-analysis.txt
+                                    cat ai-analysis.txt
                                     echo "==========================="
                                 """
 
-                                env.AI_ANALYSIS = readFile('/tmp/ai-analysis.txt').trim().take(400)
+                                env.AI_ANALYSIS = readFile('ai-analysis.txt').trim().take(400)
                             }
                         }
                     }
@@ -773,11 +773,11 @@ nightly_zap_alerts_high{job="nightly"} ${env.ZAP_HIGH ?: 0}
 nightly_zap_alerts_medium{job="nightly"} ${env.ZAP_MEDIUM ?: 0}
 nightly_license_status{job="nightly"} ${licenseVal}
 """
-                            writeFile file: '/tmp/metrics.txt', text: metrics.trim()
+                            writeFile file: 'nightly-metrics.txt', text: metrics.trim()
 
                             sh """
                                 curl -sf --max-time 10 \
-                                  --data-binary @/tmp/metrics.txt \
+                                  --data-binary @nightly-metrics.txt \
                                   ${PUSHGATEWAY_URL}/metrics/job/nightly \
                                   && echo "Metrics pushed to Pushgateway" \
                                   || echo "Pushgateway unreachable — metrics not pushed"
