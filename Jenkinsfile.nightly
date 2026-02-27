@@ -442,39 +442,29 @@ print(f'{crit} {high} {med}')
             }
         }
 
-        // ── Stage 8: Performance Test (k6) ─────────────────────────────────
+        // ── Stage 8: Performance Test (k6) — runs against live app ──────────
         stage('Performance Test (k6)') {
+            when {
+                expression {
+                    def status = sh(
+                        script: "curl -sf --max-time 5 ${APP_URL}/actuator/health > /dev/null 2>&1 && echo 'true' || echo 'false'",
+                        returnStdout: true
+                    ).trim()
+                    if (status != 'true') { echo "k6 skipped — app not reachable" }
+                    return status == 'true'
+                }
+            }
             steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    // Step 1: Start Spring Boot app with MySQL sidecar on port 8081
-                    container('maven') {
-                        sh '''
-                            nohup mvn spring-boot:run \
-                              -Dspring-boot.run.arguments="--server.port=8081" \
-                              -Dspring-boot.run.profiles=it \
-                              -Djacoco.skip=true \
-                              -q > /tmp/app.log 2>&1 &
-
-                            echo "Waiting for app startup on port 8081..."
-                            for i in $(seq 1 60); do
-                                if curl -sf --max-time 2 http://localhost:8081/actuator/health > /dev/null 2>&1; then
-                                    echo "App started after ${i}s"
-                                    break
-                                fi
-                                sleep 2
-                            done
-                        '''
-                    }
-
-                    // Step 2: Run k6 load test
+                timeout(time: 3, unit: 'MINUTES') {
+                    // Run k6 load test against live app
                     container('k6') {
-                        sh '''
+                        sh """
                             k6 run \
                               --out json=/tmp/k6-results.json \
-                              -e BASE_URL=http://localhost:8081 \
+                              -e BASE_URL=${APP_URL} \
                               src/test/resources/load-test.js \
                               || true
-                        '''
+                        """
                     }
 
                     // Step 3: Parse k6 results

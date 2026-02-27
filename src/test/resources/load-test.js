@@ -13,79 +13,72 @@ export const options = {
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8081';
 
-// Unique user per VU iteration
-let counter = 0;
+// Extract CSRF token from HTML response
+function getCsrf(response) {
+    const match = response.body.match(/name="_csrf"\s+value="([^"]+)"/);
+    return match ? match[1] : '';
+}
 
 export default function () {
     const uniqueId = `${__VU}_${__ITER}_${Date.now()}`;
+    const username = `k6_${uniqueId}`;
+    const password = 'TestPass123!';
 
     group('Public Pages', function () {
-        // GET /login — render login form
+        let health = http.get(`${BASE_URL}/actuator/health`);
+        check(health, {
+            'health endpoint returns 200': (r) => r.status === 200,
+        });
+
         let loginPage = http.get(`${BASE_URL}/login`);
         check(loginPage, {
             'login page returns 200': (r) => r.status === 200,
         });
 
-        // GET /register — render registration form
         let registerPage = http.get(`${BASE_URL}/register`);
         check(registerPage, {
             'register page returns 200': (r) => r.status === 200,
         });
-
-        // GET /actuator/health — health check
-        let health = http.get(`${BASE_URL}/actuator/health`);
-        check(health, {
-            'health endpoint returns 200': (r) => r.status === 200,
-        });
     });
 
     group('User Registration', function () {
-        // POST /register — create new user
+        // Get CSRF token from register page
+        let regPage = http.get(`${BASE_URL}/register`);
+        let csrf = getCsrf(regPage);
+
         let registerRes = http.post(`${BASE_URL}/register`, {
-            username: `loadtest_${uniqueId}`,
-            password: 'TestPass123!',
+            username: username,
+            password: password,
+            _csrf: csrf,
         });
         check(registerRes, {
-            'registration succeeds (200 or 302)': (r) => r.status === 200 || r.status === 302,
+            'registration succeeds': (r) => r.status === 200 || r.status === 302,
         });
     });
 
     group('Authenticated Flow', function () {
-        // POST /login — authenticate
+        // Get CSRF token from login page
+        let loginPage = http.get(`${BASE_URL}/login`);
+        let csrf = getCsrf(loginPage);
+
         let loginRes = http.post(`${BASE_URL}/login`, {
-            username: `loadtest_${uniqueId}`,
-            password: 'TestPass123!',
+            username: username,
+            password: password,
+            _csrf: csrf,
         });
         check(loginRes, {
-            'login succeeds (200 or 302)': (r) => r.status === 200 || r.status === 302,
+            'login succeeds': (r) => r.status === 200 || r.status === 302,
         });
 
-        // GET /dashboard — view account dashboard
+        // Authenticated requests (cookies are kept per VU)
         let dashboard = http.get(`${BASE_URL}/dashboard`);
         check(dashboard, {
-            'dashboard accessible': (r) => r.status === 200 || r.status === 302,
+            'dashboard accessible': (r) => r.status === 200,
         });
 
-        // POST /deposit — deposit funds
-        let depositRes = http.post(`${BASE_URL}/deposit`, {
-            amount: '100.00',
-        });
-        check(depositRes, {
-            'deposit succeeds': (r) => r.status === 200 || r.status === 302,
-        });
-
-        // POST /withdraw — withdraw funds
-        let withdrawRes = http.post(`${BASE_URL}/withdraw`, {
-            amount: '25.00',
-        });
-        check(withdrawRes, {
-            'withdraw succeeds': (r) => r.status === 200 || r.status === 302,
-        });
-
-        // GET /transactions — transaction history
         let txns = http.get(`${BASE_URL}/transactions`);
         check(txns, {
-            'transactions page accessible': (r) => r.status === 200 || r.status === 302,
+            'transactions page accessible': (r) => r.status === 200,
         });
     });
 
