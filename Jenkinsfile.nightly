@@ -457,11 +457,14 @@ print(f'{crit} {high} {med}')
             steps {
                 timeout(time: 3, unit: 'MINUTES') {
                     // Run k6 load test against app via internal cluster service
-                    container('k6') {
+                    container('tools') {
                         sh '''
+                            if ! command -v k6 > /dev/null 2>&1; then
+                                curl -sfL https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz \
+                                  | tar xz --strip-components=1 -C /usr/local/bin k6-v0.54.0-linux-amd64/k6
+                            fi
                             k6 run \
                               --out json=/tmp/k6-results.json \
-                              --insecure-skip-tls-verify \
                               -e BASE_URL=http://borod-bank-service.borod-bank:80 \
                               src/test/resources/load-test.js \
                               || true
@@ -469,7 +472,7 @@ print(f'{crit} {high} {med}')
                     }
 
                     // Step 3: Parse k6 results
-                    container('maven') {
+                    container('tools') {
                         script {
                             def k6Metrics = sh(
                                 script: """
