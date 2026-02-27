@@ -671,6 +671,37 @@ PYEOF
                             echo "Smoke test FAILED — app did not respond with HTTP 200 after 5 minutes"
                             exit 1
                         '''
+
+                        // E2E Login Flow: register → login → dashboard
+                        sh '''#!/bin/bash
+                            set -e
+                            APP="https://app.vladinnovations.info"
+                            USER="ci_test_$(date +%s)"
+                            PASS="CiTest1234"
+                            JAR="/tmp/e2e_cookies.txt"
+
+                            echo "=== E2E: Get CSRF from /register ==="
+                            CSRF=$(curl -skf -c "$JAR" "$APP/register" | grep -oP 'name="_csrf" value="\\K[^"]+')
+                            [ -z "$CSRF" ] && echo "FAIL: No CSRF on /register" && exit 1
+
+                            echo "=== E2E: Register $USER ==="
+                            curl -skf -b "$JAR" -c "$JAR" -o /dev/null \
+                              -X POST "$APP/register" \
+                              -d "username=$USER&password=$PASS&_csrf=$CSRF"
+
+                            echo "=== E2E: Get CSRF from /login ==="
+                            CSRF=$(curl -skf -c "$JAR" "$APP/login" | grep -oP 'name="_csrf" value="\\K[^"]+')
+                            [ -z "$CSRF" ] && echo "FAIL: No CSRF on /login" && exit 1
+
+                            echo "=== E2E: Login ==="
+                            REDIRECT=$(curl -skf -b "$JAR" -c "$JAR" -o /dev/null -w '%{redirect_url}' \
+                              -X POST "$APP/login" \
+                              -d "username=$USER&password=$PASS&_csrf=$CSRF")
+
+                            echo "$REDIRECT" | grep -q '/dashboard' \
+                              && echo "E2E Login PASSED" \
+                              || (echo "FAIL: expected /dashboard, got $REDIRECT" && exit 1)
+                        '''
                     }
                 }
             }
