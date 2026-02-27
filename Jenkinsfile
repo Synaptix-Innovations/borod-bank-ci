@@ -370,11 +370,11 @@ spec:
             }
         }
 
-        // ── AI Code Review — non-blocking, KEDA wakes GPU node on demand ────
+        // ── AI Code Review — non-blocking, Claude API via AIOps gateway ────
         stage('AI Code Review') {
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    timeout(time: 4, unit: 'MINUTES') {
+                    timeout(time: 1, unit: 'MINUTES') {
                         container('tools') {
                             sh '''
                                 GATEWAY_URL="http://aiops-gateway.aiops.svc.cluster.local:8080"
