@@ -456,15 +456,16 @@ print(f'{crit} {high} {med}')
             }
             steps {
                 timeout(time: 3, unit: 'MINUTES') {
-                    // Run k6 load test against live app
+                    // Run k6 load test against app via internal cluster service
                     container('k6') {
-                        sh """
+                        sh '''
                             k6 run \
                               --out json=/tmp/k6-results.json \
-                              -e BASE_URL=${APP_URL} \
+                              --insecure-skip-tls-verify \
+                              -e BASE_URL=http://borod-bank-service.borod-bank:80 \
                               src/test/resources/load-test.js \
                               || true
-                        """
+                        '''
                     }
 
                     // Step 3: Parse k6 results
