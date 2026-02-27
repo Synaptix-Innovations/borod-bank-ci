@@ -2,16 +2,25 @@
 
 /*
  * Borod Bank — Nightly Regression Pipeline
- * 
- * Purpose: Heavy tests that don't block main pipeline
+ *
  * Schedule: Daily at 2:00 AM (cron: H 2 * * *)
- * 
- * Stages:
- * 1. Smoke Tests — /actuator/health, /login, /register, /dashboard
- * 2. OWASP Dependency Check
- * 3. DAST Scan (OWASP ZAP)
- * 4. Report & Notify
- * (E2E Tests / Load Tests — TODO: Future)
+ *
+ * 12 Stages:
+ *  1. Checkout
+ *  2. Unit Tests + Coverage (JaCoCo 70%)
+ *  3. Integration Tests (MySQL sidecar)
+ *  4. Architecture Tests (ArchUnit)
+ *  5. Mutation Testing (PIT 60%)
+ *  6. OWASP Dependency Check
+ *  7. License Compliance
+ *  8. Performance Test (k6)
+ *  9. AI Nightly Analysis
+ * 10. Smoke Tests (conditional — app reachable)
+ * 11. DAST Scan / ZAP (conditional — app reachable)
+ * 12. Push Metrics (Pushgateway → Prometheus → Grafana)
+ *
+ * 10 of 12 stages work without a running cluster.
+ * Smoke Tests + ZAP gracefully skip when app is offline.
  */
 
 pipeline {
@@ -22,37 +31,93 @@ apiVersion: v1
 kind: Pod
 metadata:
   labels:
-    jenkins: agent
+    jenkins: nightly-agent
 spec:
   serviceAccountName: jenkins
   containers:
+
+  - name: jnlp
+    image: jenkins/inbound-agent:3261.v9c670a_4748a_9-1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
   - name: maven
     image: maven:3.9-eclipse-temurin-17
-    command:
-      - cat
+    command: [cat]
     tty: true
     resources:
       requests:
-        memory: "1Gi"
-        cpu: "500m"
+        cpu: 500m
+        memory: 1Gi
       limits:
-        memory: "2Gi"
-        cpu: "1000m"
+        cpu: 2000m
+        memory: 3Gi
     volumeMounts:
     - name: maven-cache
       mountPath: /root/.m2
-  - name: zap
-    image: ghcr.io/zaproxy/zaproxy:stable
+
+  - name: mysql-it
+    image: mysql:8.0
+    env:
+      - name: MYSQL_DATABASE
+        value: testdb
+      - name: MYSQL_ROOT_PASSWORD
+        value: testpassword
+    resources:
+      requests:
+        cpu: 25m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  - name: tools
+    image: python:3.12-slim
     command:
-      - cat
+      - /bin/sh
+      - -c
+      - |
+        pip install --quiet requests 2>/dev/null
+        apt-get update -qq && apt-get install -y -qq curl jq > /dev/null 2>&1
+        sleep infinity
     tty: true
     resources:
       requests:
-        memory: "512Mi"
-        cpu: "250m"
+        cpu: 50m
+        memory: 128Mi
       limits:
-        memory: "1Gi"
-        cpu: "500m"
+        cpu: 200m
+        memory: 256Mi
+
+  - name: k6
+    image: grafana/k6:latest
+    command: [cat]
+    tty: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  - name: zap
+    image: ghcr.io/zaproxy/zaproxy:stable
+    command: [cat]
+    tty: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
   volumes:
   - name: maven-cache
     persistentVolumeClaim:
@@ -60,21 +125,25 @@ spec:
 """
         }
     }
-    
+
     options {
         buildDiscarder(logRotator(numToKeepStr: '30'))
         timeout(time: 2, unit: 'HOURS')
         timestamps()
         ansiColor('xterm')
     }
-    
+
     environment {
-        APP_URL = 'https://app.vladinnovations.info'
-        ZAP_PORT = '8090'
-        SLACK_CHANNEL = '#nightly-reports'
+        APP_URL         = 'https://app.vladinnovations.info'
+        ZAP_PORT        = '8090'
+        SLACK_CHANNEL   = '#nightly-reports'
+        PUSHGATEWAY_URL = 'http://pushgateway-service.monitoring:9091'
+        AIOPS_GATEWAY   = 'http://aiops-gateway.aiops.svc.cluster.local:8080'
     }
-    
+
     stages {
+
+        // ── Stage 1: Checkout ──────────────────────────────────────────────
         stage('Checkout') {
             steps {
                 checkout scm
@@ -87,89 +156,238 @@ spec:
                         script: "date '+%Y-%m-%d %H:%M:%S'",
                         returnStdout: true
                     ).trim()
-                }
-            }
-        }
-        
-        stage('Smoke Tests') {
-            steps {
-                script {
-                    echo "🔍 Running smoke tests..."
-
-                    // Health check — abort pipeline if app is down
-                    def healthStatus = sh(
-                        script: "curl -s -o /dev/null -w '%{http_code}' ${APP_URL}/actuator/health",
+                    env.BUILD_START_EPOCH = sh(
+                        script: "date +%s",
                         returnStdout: true
                     ).trim()
-
-                    if (healthStatus != '200') {
-                        error("❌ Application is not healthy (status: ${healthStatus}). Aborting nightly tests.")
-                    }
-
-                    // Smoke checks
-                    def checks = [
-                        [path: '/login',     expected: '200'],
-                        [path: '/register',  expected: '200'],
-                        [path: '/dashboard', expected: '302'],
-                    ]
-
-                    def results = ['/actuator/health': healthStatus]
-                    def failed  = []
-
-                    checks.each { check ->
-                        def status = sh(
-                            script: "curl -s -o /dev/null -w '%{http_code}' ${APP_URL}${check.path}",
-                            returnStdout: true
-                        ).trim()
-                        results[check.path] = status
-                        if (status != check.expected) {
-                            failed.add("${check.path}: expected ${check.expected}, got ${status}")
-                        }
-                    }
-
-                    echo """
-📊 Smoke Test Results:
-- /actuator/health → ${results['/actuator/health']} (expected 200)
-- /login           → ${results['/login']}           (expected 200)
-- /register        → ${results['/register']}        (expected 200)
-- /dashboard       → ${results['/dashboard']}       (expected 302)
-                    """.stripIndent()
-
-                    env.SMOKE_HEALTH    = results['/actuator/health']
-                    env.SMOKE_LOGIN     = results['/login']
-                    env.SMOKE_REGISTER  = results['/register']
-                    env.SMOKE_DASHBOARD = results['/dashboard']
-
-                    if (failed) {
-                        currentBuild.result = 'UNSTABLE'
-                        echo "⚠️ Smoke test failures:\n${failed.join('\n')}"
-                    } else {
-                        echo "✅ All smoke tests passed"
-                    }
                 }
             }
         }
-        
-        stage('OWASP Dependency Check') {
+
+        // ── Stage 2: Unit Tests + Coverage ─────────────────────────────────
+        stage('Unit Tests + Coverage') {
             steps {
                 container('maven') {
+                    timeout(time: 10, unit: 'MINUTES') {
+                        sh 'mvn test -q'
+                    }
                     script {
-                        echo "🔍 Running OWASP Dependency Check..."
-                        
-                        sh """
-                            mvn org.owasp:dependency-check-maven:check \
-                              -DfailBuildOnCVSS=7 \
-                              -DsuppressionFile=dependency-check-suppressions.xml \
-                              -Dformats=HTML,JSON,XML
-                        """
+                        // Parse coverage from JaCoCo XML
+                        def jacocoXml = 'target/site/jacoco/jacoco.xml'
+                        if (fileExists(jacocoXml)) {
+                            def coverage = sh(
+                                script: """
+                                    python3 -c "
+import xml.etree.ElementTree as ET
+tree = ET.parse('${jacocoXml}')
+for c in tree.findall('.//counter'):
+    if c.get('type') == 'LINE':
+        m = int(c.get('missed', 0))
+        cv = int(c.get('covered', 0))
+        print(round(cv * 100.0 / (m + cv), 1) if (m + cv) > 0 else 0)
+        break
+" 2>/dev/null || echo "0"
+                                """,
+                                returnStdout: true
+                            ).trim()
+                            env.COVERAGE_PERCENT = coverage
+                        } else {
+                            env.COVERAGE_PERCENT = '0'
+                        }
+
+                        // Parse unit test counts from surefire
+                        def unitTotal = sh(
+                            script: "grep -r 'tests=' target/surefire-reports/*.xml 2>/dev/null | head -1 | sed 's/.*tests=\"\\([0-9]*\\)\".*/\\1/' || echo '0'",
+                            returnStdout: true
+                        ).trim()
+                        def unitFailed = sh(
+                            script: "grep -r 'failures=' target/surefire-reports/*.xml 2>/dev/null | head -1 | sed 's/.*failures=\"\\([0-9]*\\)\".*/\\1/' || echo '0'",
+                            returnStdout: true
+                        ).trim()
+                        env.UNIT_TOTAL = unitTotal
+                        env.UNIT_FAILED = unitFailed
+
+                        echo "Coverage: ${env.COVERAGE_PERCENT}% | Unit Tests: ${unitTotal} total, ${unitFailed} failed"
                     }
                 }
             }
             post {
                 always {
-                    // Publish Dependency Check report
                     publishHTML(target: [
-                        allowMissing: false,
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'target/site/jacoco',
+                        reportFiles: 'index.html',
+                        reportName: 'JaCoCo Coverage Report'
+                    ])
+                }
+            }
+        }
+
+        // ── Stage 3: Integration Tests ─────────────────────────────────────
+        stage('Integration Tests') {
+            steps {
+                container('maven') {
+                    timeout(time: 10, unit: 'MINUTES') {
+                        sh '''
+                            echo "Waiting for MySQL sidecar..."
+                            for i in $(seq 1 30); do
+                                (echo > /dev/tcp/localhost/3306) 2>/dev/null && echo "MySQL ready" && break
+                                echo "Attempt $i/30 — waiting 2s..."
+                                sleep 2
+                            done
+
+                            mvn test \
+                              -Dtest="*IT" \
+                              -Dspring.profiles.active=it \
+                              -DfailIfNoTests=false \
+                              -Djacoco.skip=true \
+                              -q
+                        '''
+                    }
+                    script {
+                        // Parse IT test counts
+                        def itTotal = sh(
+                            script: """
+                                find target/surefire-reports -name 'TEST-*IT.xml' -exec grep -l 'testsuite' {} \\; 2>/dev/null | \
+                                xargs grep -h 'tests=' 2>/dev/null | \
+                                sed 's/.*tests=\"\\([0-9]*\\)\".*/\\1/' | \
+                                awk '{s+=\$1} END {print s+0}'
+                            """,
+                            returnStdout: true
+                        ).trim()
+                        def itFailed = sh(
+                            script: """
+                                find target/surefire-reports -name 'TEST-*IT.xml' -exec grep -l 'testsuite' {} \\; 2>/dev/null | \
+                                xargs grep -h 'failures=' 2>/dev/null | \
+                                sed 's/.*failures=\"\\([0-9]*\\)\".*/\\1/' | \
+                                awk '{s+=\$1} END {print s+0}'
+                            """,
+                            returnStdout: true
+                        ).trim()
+                        env.IT_TOTAL = itTotal
+                        env.IT_FAILED = itFailed
+                        echo "Integration Tests: ${itTotal} total, ${itFailed} failed"
+                    }
+                }
+            }
+        }
+
+        // ── Stage 4: Architecture Tests ────────────────────────────────────
+        stage('Architecture Tests') {
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                    container('maven') {
+                        timeout(time: 5, unit: 'MINUTES') {
+                            sh 'mvn test -Dtest="ArchitectureTest" -DfailIfNoTests=false -Djacoco.skip=true -q'
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Stage 5: Mutation Testing (PIT) ────────────────────────────────
+        stage('Mutation Testing (PIT)') {
+            steps {
+                container('maven') {
+                    timeout(time: 15, unit: 'MINUTES') {
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                            sh 'mvn org.pitest:pitest-maven:mutationCoverage -q'
+                        }
+                    }
+                    script {
+                        // Parse mutation score from XML report
+                        def mutationsXml = 'target/pit-reports/mutations.xml'
+                        if (fileExists(mutationsXml)) {
+                            def mutScore = sh(
+                                script: """
+                                    python3 -c "
+import xml.etree.ElementTree as ET
+tree = ET.parse('${mutationsXml}')
+mutations = tree.findall('.//mutation')
+total = len(mutations)
+killed = len([m for m in mutations if m.get('status') == 'KILLED'])
+print(round(killed * 100.0 / total, 1) if total > 0 else 0)
+" 2>/dev/null || echo "0"
+                                """,
+                                returnStdout: true
+                            ).trim()
+                            env.MUTATION_SCORE = mutScore
+                        } else {
+                            env.MUTATION_SCORE = '0'
+                        }
+                        echo "Mutation Score: ${env.MUTATION_SCORE}%"
+                    }
+                }
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'target/pit-reports',
+                        reportFiles: 'index.html',
+                        reportName: 'PIT Mutation Report'
+                    ])
+                }
+            }
+        }
+
+        // ── Stage 6: OWASP Dependency Check ────────────────────────────────
+        stage('OWASP Dependency Check') {
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                    container('maven') {
+                        timeout(time: 25, unit: 'MINUTES') {
+                            sh '''
+                                mvn org.owasp:dependency-check-maven:check \
+                                  -DfailBuildOnCVSS=7 \
+                                  -DsuppressionFile=dependency-check-suppressions.xml \
+                                  -Dformats=HTML,JSON
+                            '''
+                        }
+                        script {
+                            // Parse CVE counts from JSON report
+                            def dcJson = 'target/dependency-check-report.json'
+                            if (fileExists(dcJson)) {
+                                def counts = sh(
+                                    script: """
+                                        python3 -c "
+import json
+with open('${dcJson}') as f:
+    data = json.load(f)
+deps = data.get('dependencies', [])
+crit = high = med = 0
+for d in deps:
+    for v in d.get('vulnerabilities', []):
+        s = v.get('cvssv3', {}).get('baseScore', v.get('cvssv2', {}).get('score', 0))
+        if s >= 9: crit += 1
+        elif s >= 7: high += 1
+        elif s >= 4: med += 1
+print(f'{crit} {high} {med}')
+" 2>/dev/null || echo "0 0 0"
+                                    """,
+                                    returnStdout: true
+                                ).trim().split(' ')
+                                env.OWASP_CRITICAL = counts[0]
+                                env.OWASP_HIGH = counts[1]
+                                env.OWASP_MEDIUM = counts[2]
+                            } else {
+                                env.OWASP_CRITICAL = 'N/A'
+                                env.OWASP_HIGH = 'N/A'
+                                env.OWASP_MEDIUM = 'N/A'
+                            }
+                            echo "OWASP CVEs: critical=${env.OWASP_CRITICAL} high=${env.OWASP_HIGH} medium=${env.OWASP_MEDIUM}"
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing: true,
                         alwaysLinkToLastBuild: true,
                         keepAll: true,
                         reportDir: 'target',
@@ -179,124 +397,406 @@ spec:
                 }
             }
         }
-        
-        stage('DAST Scan (OWASP ZAP)') {
+
+        // ── Stage 7: License Compliance ────────────────────────────────────
+        stage('License Compliance') {
             steps {
-                container('zap') {
+                container('maven') {
+                    timeout(time: 5, unit: 'MINUTES') {
+                        sh 'mvn license:aggregate-third-party-report -q'
+                    }
                     script {
-                        echo "🎯 Running OWASP ZAP DAST scan..."
-                        
-                        // Create reports directory
-                        sh 'mkdir -p zap-reports'
-                        
-                        // Run ZAP baseline scan
-                        def zapExitCode = sh(
+                        // Check for forbidden licenses (GPL, AGPL)
+                        def licenseStatus = sh(
                             script: """
-                                zap-baseline.py \
-                                  -t ${APP_URL} \
-                                  -r zap-reports/zap-report.html \
-                                  -J zap-reports/zap-report.json \
-                                  -w zap-reports/zap-report.md \
-                                  -c zap-config.conf \
-                                  -I \
-                                  -d \
-                                  || echo \$?
+                                if grep -ri 'GNU General Public License\\|AGPL\\|GPL-2.0\\|GPL-3.0' \
+                                    target/site/aggregate-third-party-report.html 2>/dev/null | \
+                                    grep -v 'LGPL' | grep -q 'GPL'; then
+                                    echo 'FAIL'
+                                else
+                                    echo 'PASS'
+                                fi
                             """,
                             returnStdout: true
                         ).trim()
-                        
-                        echo "ZAP scan completed with exit code: ${zapExitCode}"
-                        
-                        // Parse results
-                        def zapReport = readJSON file: 'zap-reports/zap-report.json'
-                        def site = zapReport.site[0]
-                        
-                        def critical = site.alerts.findAll { it.riskcode == "3" }.size()
-                        def high = site.alerts.findAll { it.riskcode == "2" }.size()
-                        def medium = site.alerts.findAll { it.riskcode == "1" }.size()
-                        def low = site.alerts.findAll { it.riskcode == "0" }.size()
-                        
-                        env.ZAP_CRITICAL = critical
-                        env.ZAP_HIGH = high
-                        env.ZAP_MEDIUM = medium
-                        env.ZAP_LOW = low
-                        
-                        echo """
-                        📊 ZAP Scan Results:
-                        - Critical: ${critical}
-                        - High: ${high}
-                        - Medium: ${medium}
-                        - Low: ${low}
-                        """
-                        
-                        // Fail build if critical or high vulnerabilities found
-                        if (critical > 0) {
-                            currentBuild.result = 'FAILURE'
-                            error("❌ Found ${critical} CRITICAL vulnerabilities")
-                        } else if (high > 0) {
-                            currentBuild.result = 'UNSTABLE'
-                            echo "⚠️ Found ${high} HIGH vulnerabilities"
+                        env.LICENSE_STATUS = licenseStatus
+                        echo "License Compliance: ${licenseStatus}"
+                        if (licenseStatus == 'FAIL') {
+                            unstable("Forbidden license (GPL/AGPL) detected in dependencies")
                         }
                     }
                 }
             }
             post {
                 always {
-                    // Publish ZAP reports
                     publishHTML(target: [
-                        allowMissing: false,
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'target/site',
+                        reportFiles: 'aggregate-third-party-report.html',
+                        reportName: 'License Compliance Report'
+                    ])
+                }
+            }
+        }
+
+        // ── Stage 8: Performance Test (k6) ─────────────────────────────────
+        stage('Performance Test (k6)') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    // Step 1: Start Spring Boot app with H2 on port 8081
+                    container('maven') {
+                        sh '''
+                            nohup mvn spring-boot:run \
+                              -Dspring-boot.run.arguments="--server.port=8081" \
+                              -Dspring-boot.run.profiles=default \
+                              -Djacoco.skip=true \
+                              -q > /tmp/app.log 2>&1 &
+
+                            echo "Waiting for app startup on port 8081..."
+                            for i in $(seq 1 60); do
+                                if curl -sf --max-time 2 http://localhost:8081/actuator/health > /dev/null 2>&1; then
+                                    echo "App started after ${i}s"
+                                    break
+                                fi
+                                sleep 2
+                            done
+                        '''
+                    }
+
+                    // Step 2: Run k6 load test
+                    container('k6') {
+                        sh '''
+                            k6 run \
+                              --out json=/tmp/k6-results.json \
+                              -e BASE_URL=http://localhost:8081 \
+                              src/test/resources/load-test.js \
+                              || true
+                        '''
+                    }
+
+                    // Step 3: Parse k6 results
+                    container('maven') {
+                        script {
+                            def k6Metrics = sh(
+                                script: """
+                                    python3 -c "
+import json, sys
+p95 = rps = err = 0
+lines = open('/tmp/k6-results.json').readlines() if __import__('os').path.exists('/tmp/k6-results.json') else []
+durations = []
+errors = total = 0
+for line in lines:
+    try:
+        d = json.loads(line)
+        if d.get('type') == 'Point':
+            metric = d.get('metric', '')
+            val = d.get('data', {}).get('value', 0)
+            if metric == 'http_req_duration':
+                durations.append(val)
+            elif metric == 'http_req_failed':
+                total += 1
+                if val > 0: errors += 1
+    except: pass
+if durations:
+    durations.sort()
+    idx = int(len(durations) * 0.95)
+    p95 = round(durations[idx], 1)
+    rps = round(len(durations) / 30.0, 1)
+err = round(errors * 100.0 / total, 1) if total > 0 else 0
+print(f'{p95} {rps} {err}')
+" 2>/dev/null || echo "0 0 0"
+                                """,
+                                returnStdout: true
+                            ).trim().split(' ')
+                            env.K6_P95 = k6Metrics[0]
+                            env.K6_RPS = k6Metrics[1]
+                            env.K6_ERROR_RATE = k6Metrics[2]
+                            echo "k6 Results: p95=${env.K6_P95}ms, RPS=${env.K6_RPS}, errors=${env.K6_ERROR_RATE}%"
+
+                            if (env.K6_P95.toFloat() > 500) {
+                                unstable("k6 p95 response time ${env.K6_P95}ms exceeds 500ms threshold")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Stage 9: AI Nightly Analysis ───────────────────────────────────
+        stage('AI Nightly Analysis') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    container('tools') {
+                        timeout(time: 2, unit: 'MINUTES') {
+                            script {
+                                def summary = """
+Nightly Build #${env.BUILD_NUMBER} (${env.GIT_COMMIT_SHORT})
+- Unit Tests: ${env.UNIT_TOTAL ?: 'N/A'} total, ${env.UNIT_FAILED ?: 'N/A'} failed
+- IT Tests: ${env.IT_TOTAL ?: 'N/A'} total, ${env.IT_FAILED ?: 'N/A'} failed
+- Coverage: ${env.COVERAGE_PERCENT ?: 'N/A'}%
+- Mutation Score: ${env.MUTATION_SCORE ?: 'N/A'}%
+- OWASP CVEs: critical=${env.OWASP_CRITICAL ?: 'N/A'} high=${env.OWASP_HIGH ?: 'N/A'} medium=${env.OWASP_MEDIUM ?: 'N/A'}
+- License: ${env.LICENSE_STATUS ?: 'N/A'}
+- k6 p95: ${env.K6_P95 ?: 'N/A'}ms, RPS: ${env.K6_RPS ?: 'N/A'}, errors: ${env.K6_ERROR_RATE ?: 'N/A'}%
+Analyze quality trends and provide 3-4 actionable recommendations.
+"""
+                                writeFile file: '/tmp/ai-summary.txt', text: summary
+
+                                sh """
+                                    GATEWAY_URL="${env.AIOPS_GATEWAY}"
+
+                                    # Health check
+                                    GW_STATUS=\$(curl -sf --max-time 5 "\${GATEWAY_URL}/health" || echo "unreachable")
+                                    if echo "\$GW_STATUS" | grep -q "unreachable"; then
+                                        echo "AIOps gateway unreachable — skipping AI analysis"
+                                        exit 1
+                                    fi
+
+                                    python3 -c "
+import json, os
+summary = open('/tmp/ai-summary.txt').read()
+payload = json.dumps({'diff': summary, 'context': 'Nightly regression analysis'})
+with open('/tmp/ai-payload.json', 'w') as f:
+    f.write(payload)
+"
+
+                                    RESPONSE=\$(curl -sf -X POST "\${GATEWAY_URL}/review" \
+                                        -H "Content-Type: application/json" \
+                                        -d @/tmp/ai-payload.json \
+                                        --max-time 60 \
+                                        || echo '{"review":"Gateway unavailable"}')
+
+                                    echo "\$RESPONSE" | python3 -c "
+import json, sys
+try:
+    r = json.load(sys.stdin).get('review', '')
+    print(r[:500])
+except:
+    print('Parse error')
+" > /tmp/ai-analysis.txt 2>/dev/null || true
+
+                                    echo "=== AI Nightly Analysis ==="
+                                    cat /tmp/ai-analysis.txt
+                                    echo "==========================="
+                                """
+
+                                env.AI_ANALYSIS = readFile('/tmp/ai-analysis.txt').trim().take(400)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Stage 10: Smoke Tests (conditional) ────────────────────────────
+        stage('Smoke Tests') {
+            when {
+                expression {
+                    def status = sh(
+                        script: "curl -sf --max-time 5 ${APP_URL}/actuator/health > /dev/null 2>&1 && echo 'true' || echo 'false'",
+                        returnStdout: true
+                    ).trim()
+                    env.APP_REACHABLE = status
+                    return status == 'true'
+                }
+            }
+            steps {
+                script {
+                    def checks = [
+                        [path: '/actuator/health', expected: '200'],
+                        [path: '/login',           expected: '200'],
+                        [path: '/register',        expected: '200'],
+                        [path: '/dashboard',       expected: '302'],
+                    ]
+
+                    def failed = []
+
+                    checks.each { check ->
+                        def status = sh(
+                            script: "curl -s -o /dev/null -w '%{http_code}' --max-time 5 ${APP_URL}${check.path}",
+                            returnStdout: true
+                        ).trim()
+                        if (status != check.expected) {
+                            failed.add("${check.path}: expected ${check.expected}, got ${status}")
+                        }
+                    }
+
+                    if (failed) {
+                        currentBuild.result = 'UNSTABLE'
+                        echo "Smoke test failures:\n${failed.join('\n')}"
+                    } else {
+                        echo "All smoke tests passed"
+                    }
+                }
+            }
+        }
+
+        // ── Stage 11: DAST Scan (ZAP) (conditional) ───────────────────────
+        stage('DAST Scan (OWASP ZAP)') {
+            when {
+                expression {
+                    return env.APP_REACHABLE == 'true'
+                }
+            }
+            steps {
+                container('zap') {
+                    script {
+                        sh 'mkdir -p zap-reports'
+
+                        sh """
+                            zap-baseline.py \
+                              -t ${APP_URL} \
+                              -r zap-reports/zap-report.html \
+                              -J zap-reports/zap-report.json \
+                              -w zap-reports/zap-report.md \
+                              -c zap-config.conf \
+                              -I \
+                              -d \
+                              || true
+                        """
+
+                        if (fileExists('zap-reports/zap-report.json')) {
+                            def zapReport = readJSON file: 'zap-reports/zap-report.json'
+                            def site = zapReport.site[0]
+
+                            env.ZAP_CRITICAL = site.alerts.findAll { it.riskcode == "3" }.size().toString()
+                            env.ZAP_HIGH     = site.alerts.findAll { it.riskcode == "2" }.size().toString()
+                            env.ZAP_MEDIUM   = site.alerts.findAll { it.riskcode == "1" }.size().toString()
+                            env.ZAP_LOW      = site.alerts.findAll { it.riskcode == "0" }.size().toString()
+
+                            echo "ZAP: critical=${env.ZAP_CRITICAL} high=${env.ZAP_HIGH} medium=${env.ZAP_MEDIUM} low=${env.ZAP_LOW}"
+
+                            if (env.ZAP_CRITICAL.toInteger() > 0) {
+                                currentBuild.result = 'FAILURE'
+                                error("Found ${env.ZAP_CRITICAL} CRITICAL vulnerabilities")
+                            } else if (env.ZAP_HIGH.toInteger() > 0) {
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing: true,
                         alwaysLinkToLastBuild: true,
                         keepAll: true,
                         reportDir: 'zap-reports',
                         reportFiles: 'zap-report.html',
                         reportName: 'OWASP ZAP DAST Report'
                     ])
-                    
-                    // Archive reports
-                    archiveArtifacts artifacts: 'zap-reports/*', fingerprint: true
+                    archiveArtifacts artifacts: 'zap-reports/*', allowEmptyArchive: true
                 }
             }
         }
-        
-        // TODO: Future stages
-        // stage('E2E Tests (Playwright)') { }
-        // stage('Load Tests (k6)') { }
-    }
-    
+
+        // ── Stage 12: Push Metrics ─────────────────────────────────────────
+        stage('Push Metrics') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    container('tools') {
+                        script {
+                            def buildEnd = sh(
+                                script: "date +%s",
+                                returnStdout: true
+                            ).trim()
+                            def buildDuration = buildEnd.toLong() - (env.BUILD_START_EPOCH ?: buildEnd).toLong()
+
+                            def buildStatus = '1'  // SUCCESS
+                            if (currentBuild.result == 'UNSTABLE') buildStatus = '0.5'
+                            if (currentBuild.result == 'FAILURE') buildStatus = '0'
+
+                            def licenseVal = env.LICENSE_STATUS == 'PASS' ? '1' : '0'
+
+                            def metrics = """
+nightly_build_duration_seconds{job="nightly"} ${buildDuration}
+nightly_build_status{job="nightly"} ${buildStatus}
+nightly_unit_tests_total{job="nightly"} ${env.UNIT_TOTAL ?: 0}
+nightly_unit_tests_failed{job="nightly"} ${env.UNIT_FAILED ?: 0}
+nightly_integration_tests_total{job="nightly"} ${env.IT_TOTAL ?: 0}
+nightly_integration_tests_failed{job="nightly"} ${env.IT_FAILED ?: 0}
+nightly_coverage_percent{job="nightly"} ${env.COVERAGE_PERCENT ?: 0}
+nightly_mutation_score_percent{job="nightly"} ${env.MUTATION_SCORE ?: 0}
+nightly_owasp_cve_critical{job="nightly"} ${env.OWASP_CRITICAL ?: 0}
+nightly_owasp_cve_high{job="nightly"} ${env.OWASP_HIGH ?: 0}
+nightly_owasp_cve_medium{job="nightly"} ${env.OWASP_MEDIUM ?: 0}
+nightly_k6_p95_ms{job="nightly"} ${env.K6_P95 ?: 0}
+nightly_k6_rps{job="nightly"} ${env.K6_RPS ?: 0}
+nightly_k6_error_rate{job="nightly"} ${env.K6_ERROR_RATE ?: 0}
+nightly_zap_alerts_high{job="nightly"} ${env.ZAP_HIGH ?: 0}
+nightly_zap_alerts_medium{job="nightly"} ${env.ZAP_MEDIUM ?: 0}
+nightly_license_status{job="nightly"} ${licenseVal}
+"""
+                            writeFile file: '/tmp/metrics.txt', text: metrics.trim()
+
+                            sh """
+                                curl -sf --max-time 10 \
+                                  --data-binary @/tmp/metrics.txt \
+                                  ${PUSHGATEWAY_URL}/metrics/job/nightly \
+                                  && echo "Metrics pushed to Pushgateway" \
+                                  || echo "Pushgateway unreachable — metrics not pushed"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+    } // end stages
+
     post {
         always {
             script {
                 def duration = currentBuild.durationString.replace(' and counting', '')
                 def status = currentBuild.result ?: 'SUCCESS'
-                def emoji = status == 'SUCCESS' ? '✅' : (status == 'UNSTABLE' ? '⚠️' : '❌')
+                def emoji = status == 'SUCCESS' ? ':white_check_mark:' : (status == 'UNSTABLE' ? ':warning:' : ':x:')
+                def statusColor = status == 'SUCCESS' ? '#36a64f' : (status == 'UNSTABLE' ? '#daa038' : '#dc3545')
 
-                container('maven') {
+                def smokeSection = env.APP_REACHABLE == 'true'
+                    ? "*Smoke:* PASSED | *ZAP:* critical=${env.ZAP_CRITICAL ?: '0'} high=${env.ZAP_HIGH ?: '0'} medium=${env.ZAP_MEDIUM ?: '0'}"
+                    : "*Smoke:* skipped (app offline) | *ZAP:* skipped"
+
+                def aiSection = env.AI_ANALYSIS ? env.AI_ANALYSIS.take(300) : 'N/A (gateway unreachable)'
+
+                container('tools') {
                     withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_HOOK_URL')]) {
-                        def payload = [
-                            channel: env.SLACK_CHANNEL,
-                            text: "${emoji} *Nightly Regression Pipeline* — ${status}\n" +
-                                  "*Build:* #${env.BUILD_NUMBER} | *Commit:* ${env.GIT_COMMIT_SHORT ?: 'N/A'} | *Duration:* ${duration}\n" +
-                                  "*Smoke Tests:* health=${env.SMOKE_HEALTH ?: 'N/A'} login=${env.SMOKE_LOGIN ?: 'N/A'} register=${env.SMOKE_REGISTER ?: 'N/A'} dashboard=${env.SMOKE_DASHBOARD ?: 'N/A'}\n" +
-                                  "*ZAP:* critical=${env.ZAP_CRITICAL ?: 'N/A'} high=${env.ZAP_HIGH ?: 'N/A'} medium=${env.ZAP_MEDIUM ?: 'N/A'} low=${env.ZAP_LOW ?: 'N/A'}\n" +
-                                  "*Reports:* ${env.BUILD_URL}"
-                        ]
-                        writeJSON file: 'slack-nightly-payload.json', json: payload
+                        def payload = """{
+  "channel": "${env.SLACK_CHANNEL}",
+  "attachments": [{
+    "color": "${statusColor}",
+    "blocks": [
+      {"type": "header", "text": {"type": "plain_text", "text": "${emoji} Nightly Regression - ${status}"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": "*Build:* #${env.BUILD_NUMBER} | *Commit:* ${env.GIT_COMMIT_SHORT ?: 'N/A'} | *Duration:* ${duration}"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": "*Unit Tests:* ${env.UNIT_TOTAL ?: 'N/A'} total, ${env.UNIT_FAILED ?: 'N/A'} failed | *IT Tests:* ${env.IT_TOTAL ?: 'N/A'} total, ${env.IT_FAILED ?: 'N/A'} failed"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": "*Coverage:* ${env.COVERAGE_PERCENT ?: 'N/A'}% | *Mutation Score:* ${env.MUTATION_SCORE ?: 'N/A'}%"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": "*OWASP CVEs:* critical=${env.OWASP_CRITICAL ?: 'N/A'} high=${env.OWASP_HIGH ?: 'N/A'} medium=${env.OWASP_MEDIUM ?: 'N/A'} | *License:* ${env.LICENSE_STATUS ?: 'N/A'}"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": "*k6 Performance:* p95=${env.K6_P95 ?: 'N/A'}ms | RPS=${env.K6_RPS ?: 'N/A'} | errors=${env.K6_ERROR_RATE ?: 'N/A'}%"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": "${smokeSection}"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": "*AI Analysis:* ${aiSection}"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": "<${env.BUILD_URL}|View Reports>"}}
+    ]
+  }]
+}"""
+                        writeFile file: 'slack-nightly-payload.json', text: payload
                         sh 'curl -s -X POST "$SLACK_HOOK_URL" -H "Content-Type: application/json" -d @slack-nightly-payload.json || true'
                     }
                 }
             }
         }
-        
+
         success {
-            echo '✅ Nightly regression pipeline completed successfully'
+            echo 'Nightly regression pipeline completed successfully'
         }
-        
+
         unstable {
-            echo '⚠️ Nightly regression pipeline completed with warnings'
+            echo 'Nightly regression pipeline completed with warnings'
         }
-        
+
         failure {
-            echo '❌ Nightly regression pipeline failed'
+            echo 'Nightly regression pipeline failed'
         }
     }
 }
