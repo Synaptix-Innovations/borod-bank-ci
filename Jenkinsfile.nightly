@@ -120,7 +120,7 @@ spec:
         memory: 1Gi
 
   - name: nuclei
-    image: projectdiscovery/nuclei:v3.3.7
+    image: projectdiscovery/nuclei:v3.7.0
     command: [cat]
     tty: true
     resources:
