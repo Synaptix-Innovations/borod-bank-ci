@@ -755,32 +755,35 @@ except:
                             def licenseVal = env.LICENSE_STATUS == 'PASS' ? '1' : '0'
 
                             def metrics = """
-nightly_build_duration_seconds{job="nightly"} ${buildDuration}
-nightly_build_status{job="nightly"} ${buildStatus}
-nightly_unit_tests_total{job="nightly"} ${env.UNIT_TOTAL ?: 0}
-nightly_unit_tests_failed{job="nightly"} ${env.UNIT_FAILED ?: 0}
-nightly_integration_tests_total{job="nightly"} ${env.IT_TOTAL ?: 0}
-nightly_integration_tests_failed{job="nightly"} ${env.IT_FAILED ?: 0}
-nightly_coverage_percent{job="nightly"} ${env.COVERAGE_PERCENT ?: 0}
-nightly_mutation_score_percent{job="nightly"} ${env.MUTATION_SCORE ?: 0}
-nightly_owasp_cve_critical{job="nightly"} ${env.OWASP_CRITICAL ?: 0}
-nightly_owasp_cve_high{job="nightly"} ${env.OWASP_HIGH ?: 0}
-nightly_owasp_cve_medium{job="nightly"} ${env.OWASP_MEDIUM ?: 0}
-nightly_k6_p95_ms{job="nightly"} ${env.K6_P95 ?: 0}
-nightly_k6_rps{job="nightly"} ${env.K6_RPS ?: 0}
-nightly_k6_error_rate{job="nightly"} ${env.K6_ERROR_RATE ?: 0}
-nightly_zap_alerts_high{job="nightly"} ${env.ZAP_HIGH ?: 0}
-nightly_zap_alerts_medium{job="nightly"} ${env.ZAP_MEDIUM ?: 0}
-nightly_license_status{job="nightly"} ${licenseVal}
+nightly_build_duration_seconds ${buildDuration}
+nightly_build_status ${buildStatus}
+nightly_unit_tests_total ${env.UNIT_TOTAL ?: 0}
+nightly_unit_tests_failed ${env.UNIT_FAILED ?: 0}
+nightly_integration_tests_total ${env.IT_TOTAL ?: 0}
+nightly_integration_tests_failed ${env.IT_FAILED ?: 0}
+nightly_coverage_percent ${env.COVERAGE_PERCENT ?: 0}
+nightly_mutation_score_percent ${env.MUTATION_SCORE ?: 0}
+nightly_owasp_cve_critical ${env.OWASP_CRITICAL ?: 0}
+nightly_owasp_cve_high ${env.OWASP_HIGH ?: 0}
+nightly_owasp_cve_medium ${env.OWASP_MEDIUM ?: 0}
+nightly_k6_p95_ms ${env.K6_P95 ?: 0}
+nightly_k6_rps ${env.K6_RPS ?: 0}
+nightly_k6_error_rate ${env.K6_ERROR_RATE ?: 0}
+nightly_zap_alerts_high ${env.ZAP_HIGH ?: 0}
+nightly_zap_alerts_medium ${env.ZAP_MEDIUM ?: 0}
+nightly_license_status ${licenseVal}
 """
-                            writeFile file: 'nightly-metrics.txt', text: metrics.trim()
+                            writeFile file: 'nightly-metrics.txt', text: metrics.trim() + '\n'
 
                             sh """
-                                curl -sf --max-time 10 \
+                                cat nightly-metrics.txt
+                                echo "---"
+                                curl -s --max-time 10 \
                                   --data-binary @nightly-metrics.txt \
                                   ${PUSHGATEWAY_URL}/metrics/job/nightly \
-                                  && echo "Metrics pushed to Pushgateway" \
-                                  || echo "Pushgateway unreachable — metrics not pushed"
+                                  -w '\\nHTTP %{http_code}' \
+                                  && echo " — Metrics pushed to Pushgateway" \
+                                  || echo " — Pushgateway push failed"
                             """
                         }
                     }
