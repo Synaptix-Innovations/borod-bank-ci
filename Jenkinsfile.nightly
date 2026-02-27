@@ -445,12 +445,12 @@ print(f'{crit} {high} {med}')
         stage('Performance Test (k6)') {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
-                    // Step 1: Start Spring Boot app with H2 on port 8081
+                    // Step 1: Start Spring Boot app with MySQL sidecar on port 8081
                     container('maven') {
                         sh '''
                             nohup mvn spring-boot:run \
                               -Dspring-boot.run.arguments="--server.port=8081" \
-                              -Dspring-boot.run.profiles=default \
+                              -Dspring-boot.run.profiles=it \
                               -Djacoco.skip=true \
                               -q > /tmp/app.log 2>&1 &
 
