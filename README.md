@@ -37,11 +37,11 @@ Multi-tier banking web application built with **Spring Boot 3.4.5** and **Spring
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-## Nightly Regression Pipeline (12 stages, daily at 2 AM)
+## Nightly Regression Pipeline (14 stages, daily at 2 AM)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                   NIGHTLY PIPELINE (12 stages)                       │
+│                   NIGHTLY PIPELINE (14 stages)                       │
 │                                                                      │
 │  Checkout                                                            │
 │    ▼ Unit Tests + Coverage (JaCoCo, 70% threshold)                  │
@@ -53,6 +53,7 @@ Multi-tier banking web application built with **Spring Boot 3.4.5** and **Spring
 │    ▼ AI Nightly Analysis (Claude API Haiku)                          │
 │    ▼ Smoke Tests + E2E Login                                         │
 │    ▼ DAST Scan (OWASP ZAP)                                          │
+│    ▼ Pen Testing (Nuclei)                                            │
 │    ▼ Push 17 Metrics → Pushgateway → Prometheus → Grafana            │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -88,7 +89,7 @@ Multi-tier banking web application built with **Spring Boot 3.4.5** and **Spring
 | **Trivy (Image)** | Container image CVEs | Post-build (parallel) |
 | **Checkov** | IaC misconfigurations | Post-build (parallel) |
 
-Additionally in nightly: **OWASP ZAP** (DAST) and **License Compliance** scanning.
+Additionally in nightly: **OWASP ZAP** (DAST), **Nuclei** (pen testing), and **License Compliance** scanning.
 
 ---
 
@@ -104,6 +105,7 @@ Additionally in nightly: **OWASP ZAP** (DAST) and **License Compliance** scannin
 | Code Coverage | JaCoCo | 70% line coverage | Nightly |
 | Performance | k6 (10 VUs, 30s) | P95 < 2000 ms | Nightly |
 | DAST | OWASP ZAP | Informational | Nightly |
+| Pen Testing | Nuclei | Informational | Nightly |
 
 ---
 
@@ -113,7 +115,7 @@ Additionally in nightly: **OWASP ZAP** (DAST) and **License Compliance** scannin
 borod-bank-ci/
 ├── Dockerfile                          # Multi-stage container build
 ├── Jenkinsfile                         # Main CI pipeline (20+ stages)
-├── Jenkinsfile.nightly                 # Nightly regression (12 stages)
+├── Jenkinsfile.nightly                 # Nightly regression (14 stages)
 ├── pom.xml                             # Maven config (Spring Boot 3.4.5)
 ├── docker-compose.yml                  # Local development with MySQL
 ├── zap-config.conf                     # OWASP ZAP scan configuration
