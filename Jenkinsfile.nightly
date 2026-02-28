@@ -790,15 +790,15 @@ except:
                         // Parse results
                         if (fileExists('nuclei-reports/nuclei-results.jsonl')) {
                             def critical = sh(
-                                script: "grep -c '\"severity\":\"critical\"' nuclei-reports/nuclei-results.jsonl || echo 0",
+                                script: "grep -c '\"severity\":\"critical\"' nuclei-reports/nuclei-results.jsonl || true",
                                 returnStdout: true
                             ).trim()
                             def high = sh(
-                                script: "grep -c '\"severity\":\"high\"' nuclei-reports/nuclei-results.jsonl || echo 0",
+                                script: "grep -c '\"severity\":\"high\"' nuclei-reports/nuclei-results.jsonl || true",
                                 returnStdout: true
                             ).trim()
                             def medium = sh(
-                                script: "grep -c '\"severity\":\"medium\"' nuclei-reports/nuclei-results.jsonl || echo 0",
+                                script: "grep -c '\"severity\":\"medium\"' nuclei-reports/nuclei-results.jsonl || true",
                                 returnStdout: true
                             ).trim()
 
