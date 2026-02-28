@@ -5,11 +5,66 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.5-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Multi-tier banking web application built with **Spring Boot 3.4.5** and **Spring Security 6**, deployed via a **20+ stage Jenkins CI pipeline** with a dedicated **12-stage nightly regression suite**.
+Multi-tier banking web application built with **Spring Boot 3.4.5** and **Spring Security 6**. Three-tier CI/CD: **GitHub Actions** (PR gate checks) → **Jenkins CI** (20+ stage pipeline) → **Jenkins Nightly** (14-stage regression suite).
 
 ---
 
-## CI Pipeline Flow
+## Three-Tier CI/CD Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  TIER 1: GitHub Actions (on every PR)         ~ 3 min              │
+│    Fast gate checks before code reaches main                       │
+│                                                                     │
+│  TIER 2: Jenkins CI (on merge to main)        ~ 8 min              │
+│    Full build, security scan, deploy trigger                       │
+│                                                                     │
+│  TIER 3: Jenkins Nightly (daily at 2 AM)      ~ 6 min              │
+│    Deep quality, performance, and security analysis                │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## GitHub Actions — PR Gate (5 jobs)
+
+Runs on every Pull Request. Must pass before merge is allowed.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│              GITHUB ACTIONS PR PIPELINE (5 parallel jobs)            │
+│                                                                      │
+│  ┌─────────────────┐  ┌─────────────────────┐                       │
+│  │  Gitleaks        │  │  Hadolint            │                       │
+│  │  (secret scan)   │  │  (Dockerfile lint)   │                       │
+│  └────────┬────────┘  └─────────────────────┘                       │
+│           │                                                          │
+│           ▼                                                          │
+│  ┌─────────────────────────┐  ┌─────────────────────┐               │
+│  │  Compile + Test +        │  │  Trivy FS Scan       │               │
+│  │  Coverage (JaCoCo)       │  │  (CRITICAL vulns)    │               │
+│  │  + Upload artifacts      │  │  + Upload report     │               │
+│  └─────────────┬───────────┘  └──────────┬──────────┘               │
+│                └──────────────┬───────────┘                          │
+│                               ▼                                      │
+│                     ┌──────────────────┐                             │
+│                     │  Summary Gate     │                             │
+│                     │  (required check) │                             │
+│                     └──────────────────┘                             │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+| Job | Tool | Purpose |
+|---|---|---|
+| Secret Scan | Gitleaks | Block PRs with leaked credentials |
+| Dockerfile Lint | Hadolint | Enforce Dockerfile best practices |
+| Compile + Test | Maven + JaCoCo | Compile, run tests, generate coverage report |
+| FS Scan | Trivy | Detect CRITICAL vulnerabilities in dependencies |
+| Summary Gate | Custom | Single required status check for branch protection |
+
+---
+
+## Jenkins CI Pipeline (20+ stages)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
