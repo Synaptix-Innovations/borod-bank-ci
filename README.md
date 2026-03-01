@@ -13,14 +13,14 @@ Multi-tier banking web application built with **Spring Boot 3.4.5** and **Spring
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  TIER 1: GitHub Actions (on every PR)         ~ 3 min              │
-│    Fast gate checks before code reaches main                       │
+│  TIER 1: GitHub Actions (on every PR)         ~ 3 min               │
+│    Fast gate checks before code reaches main                        │
 │                                                                     │
-│  TIER 2: Jenkins CI (on merge to main)        ~ 8 min              │
-│    Full build, security scan, deploy trigger                       │
+│  TIER 2: Jenkins CI (on merge to main)        ~ 8 min               │
+│    Full build, security scan, deploy trigger                        │
 │                                                                     │
-│  TIER 3: Jenkins Nightly (daily at 2 AM)      ~ 6 min              │
-│    Deep quality, performance, and security analysis                │
+│  TIER 3: Jenkins Nightly (daily at 2 AM)      ~ 6 min               │
+│    Deep quality, performance, and security analysis                 │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -34,22 +34,22 @@ Runs on every Pull Request. Must pass before merge is allowed.
 ┌──────────────────────────────────────────────────────────────────────┐
 │              GITHUB ACTIONS PR PIPELINE (5 parallel jobs)            │
 │                                                                      │
-│  ┌─────────────────┐  ┌─────────────────────┐                       │
-│  │  Gitleaks        │  │  Hadolint            │                       │
-│  │  (secret scan)   │  │  (Dockerfile lint)   │                       │
-│  └────────┬────────┘  └─────────────────────┘                       │
+│  ┌─────────────────┐  ┌─────────────────────┐                        │
+│  │  Gitleaks        │  │  Hadolint            │                      │
+│  │  (secret scan)   │  │  (Dockerfile lint)   │                      │
+│  └────────┬────────┘  └─────────────────────┘                        │
 │           │                                                          │
 │           ▼                                                          │
-│  ┌─────────────────────────┐  ┌─────────────────────┐               │
-│  │  Compile + Test +        │  │  Trivy FS Scan       │               │
-│  │  Coverage (JaCoCo)       │  │  (CRITICAL vulns)    │               │
-│  │  + Upload artifacts      │  │  + Upload report     │               │
-│  └─────────────┬───────────┘  └──────────┬──────────┘               │
+│  ┌─────────────────────────┐  ┌─────────────────────┐                │
+│  │  Compile + Test +        │  │  Trivy FS Scan       │              │
+│  │  Coverage (JaCoCo)       │  │  (CRITICAL vulns)    │              │
+│  │  + Upload artifacts      │  │  + Upload report     │              │
+│  └─────────────┬───────────┘  └──────────┬──────────┘                │
 │                └──────────────┬───────────┘                          │
 │                               ▼                                      │
 │                     ┌──────────────────┐                             │
-│                     │  Summary Gate     │                             │
-│                     │  (required check) │                             │
+│                     │  Summary Gate     │                            │
+│                     │  (required check) │                            │
 │                     └──────────────────┘                             │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -71,7 +71,7 @@ Runs on every Pull Request. Must pass before merge is allowed.
 │                    JENKINS CI PIPELINE (20+ stages)                  │
 │                                                                      │
 │  Checkout                                                            │
-│    ├── [Parallel] Gitleaks ── Hadolint ── Trivy FS ── Integration   │
+│    ├── [Parallel] Gitleaks ── Hadolint ── Trivy FS ── Integration    │
 │    │                                                    Tests        │
 │    ▼                                                                 │
 │  Compile                                                             │
@@ -80,13 +80,13 @@ Runs on every Pull Request. Must pass before merge is allowed.
 │  Quality Gate (webhook callback, 5 min timeout)                      │
 │    ▼                                                                 │
 │  Build JAR → Docker Build & Push                                     │
-│    ├── [Parallel] Trivy Image ── Checkov IaC ── SBOM (Syft)         │
+│    ├── [Parallel] Trivy Image ── Checkov IaC ── SBOM (Syft)          │
 │    ▼                                                                 │
 │  Cosign Sign & Attest                                                │
 │    ▼                                                                 │
 │  Update K8s Manifests (CD repo)                                      │
 │    ▼                                                                 │
-│  Smoke Test + E2E Login (register → login → /dashboard)             │
+│  Smoke Test + E2E Login (register → login → /dashboard)              │
 │    ▼                                                                 │
 │  Slack Notification                                                  │
 └──────────────────────────────────────────────────────────────────────┘
@@ -99,7 +99,7 @@ Runs on every Pull Request. Must pass before merge is allowed.
 │                   NIGHTLY PIPELINE (14 stages)                       │
 │                                                                      │
 │  Checkout                                                            │
-│    ▼ Unit Tests + Coverage (JaCoCo, 70% threshold)                  │
+│    ▼ Unit Tests + Coverage (JaCoCo, 70% threshold)                   │
 │    ▼ Integration Tests (MySQL sidecar)                               │
 │    ▼ Architecture Tests (ArchUnit, 6 rules)                          │
 │    ▼ Mutation Testing (PIT, 60% threshold)                           │
@@ -107,7 +107,7 @@ Runs on every Pull Request. Must pass before merge is allowed.
 │    ▼ Performance Test (k6: 10 VUs, 30s)                              │
 │    ▼ AI Nightly Analysis (Claude API Haiku)                          │
 │    ▼ Smoke Tests + E2E Login                                         │
-│    ▼ DAST Scan (OWASP ZAP)                                          │
+│    ▼ DAST Scan (OWASP ZAP)                                           │
 │    ▼ Pen Testing (Nuclei)                                            │
 │    ▼ Push 17 Metrics → Pushgateway → Prometheus → Grafana            │
 └──────────────────────────────────────────────────────────────────────┘
