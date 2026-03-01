@@ -35,21 +35,21 @@ Runs on every Pull Request. Must pass before merge is allowed.
 │              GITHUB ACTIONS PR PIPELINE (5 parallel jobs)            │
 │                                                                      │
 │  ┌─────────────────┐  ┌─────────────────────┐                        │
-│  │  Gitleaks        │  │  Hadolint            │                      │
-│  │  (secret scan)   │  │  (Dockerfile lint)   │                      │
+│  │  Gitleaks       │  │  Hadolint           │                        │
+│  │  (secret scan)  │  │  (Dockerfile lint)  │                        │
 │  └────────┬────────┘  └─────────────────────┘                        │
 │           │                                                          │
 │           ▼                                                          │
 │  ┌─────────────────────────┐  ┌─────────────────────┐                │
-│  │  Compile + Test +        │  │  Trivy FS Scan       │              │
-│  │  Coverage (JaCoCo)       │  │  (CRITICAL vulns)    │              │
-│  │  + Upload artifacts      │  │  + Upload report     │              │
+│  │  Compile + Test +       │  │  Trivy FS Scan      │                │
+│  │  Coverage (JaCoCo)      │  │  (CRITICAL vulns)   │                │
+│  │  + Upload artifacts     │  │  + Upload report    │                │
 │  └─────────────┬───────────┘  └──────────┬──────────┘                │
-│                └──────────────┬───────────┘                          │
+│                └──────────────┬──────────┘                           │
 │                               ▼                                      │
 │                     ┌──────────────────┐                             │
-│                     │  Summary Gate     │                            │
-│                     │  (required check) │                            │
+│                     │  Summary Gate    │                             │
+│                     │  (required check)│                             │
 │                     └──────────────────┘                             │
 └──────────────────────────────────────────────────────────────────────┘
 ```
