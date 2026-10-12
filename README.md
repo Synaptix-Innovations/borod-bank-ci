@@ -1,11 +1,11 @@
 # Borod Bank — CI Repository
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
+[![PR Check](https://github.com/Synaptix-Innovations/borod-bank-ci/actions/workflows/pr-check.yml/badge.svg?branch=main)](https://github.com/Synaptix-Innovations/borod-bank-ci/actions/workflows/pr-check.yml)
 [![Docker](https://img.shields.io/badge/docker-vlad7774%2Fborod--bank-blue)](https://hub.docker.com/r/vlad7774/borod-bank)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.5-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Multi-tier banking web application built with **Spring Boot 3.4.5** and **Spring Security 6**. Three-tier CI/CD: **GitHub Actions** (PR gate checks) → **Jenkins CI** (20+ stage pipeline) → **Jenkins Nightly** (14-stage regression suite).
+Multi-tier banking web application built with **Spring Boot 3.4.5** and **Spring Security 6**. Three-tier CI/CD: **GitHub Actions** (PR gate checks) → **Jenkins CI** (20+ stage pipeline) → **Jenkins Nightly** (13-stage regression suite).
 
 ---
 
@@ -92,17 +92,18 @@ Runs on every Pull Request. Must pass before merge is allowed.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-## Nightly Regression Pipeline (14 stages, daily at 2 AM)
+## Nightly Regression Pipeline (13 stages, daily at 2 AM)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                   NIGHTLY PIPELINE (14 stages)                       │
+│                   NIGHTLY PIPELINE (13 stages)                       │
 │                                                                      │
 │  Checkout                                                            │
 │    ▼ Unit Tests + Coverage (JaCoCo, 70% threshold)                   │
 │    ▼ Integration Tests (MySQL sidecar)                               │
 │    ▼ Architecture Tests (ArchUnit, 6 rules)                          │
 │    ▼ Mutation Testing (PIT, 60% threshold)                           │
+│    ▼ OWASP Dependency Check                                          │
 │    ▼ License Compliance (GPL/AGPL check)                             │
 │    ▼ Performance Test (k6: 10 VUs, 30s)                              │
 │    ▼ AI Nightly Analysis (Claude API Haiku)                          │
@@ -170,7 +171,7 @@ Additionally in nightly: **OWASP ZAP** (DAST), **Nuclei** (pen testing), and **L
 borod-bank-ci/
 ├── Dockerfile                          # Multi-stage container build
 ├── Jenkinsfile                         # Main CI pipeline (20+ stages)
-├── Jenkinsfile.nightly                 # Nightly regression (14 stages)
+├── Jenkinsfile.nightly                 # Nightly regression (13 stages)
 ├── pom.xml                             # Maven config (Spring Boot 3.4.5)
 ├── docker-compose.yml                  # Local development with MySQL
 ├── zap-config.conf                     # OWASP ZAP scan configuration
